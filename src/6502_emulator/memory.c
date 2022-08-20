@@ -36,7 +36,7 @@ void read_mem_file(memory_t * mem, const char * filename) {
     return;
   }
   /* read file into a buffer and close it*/
-  fread(mem->data, mem_len, 1, file);
+  fread(&mem->data[0x8000], mem_len, 1, file);
   fclose(file);
 }
 

@@ -4,11 +4,48 @@
 
 #include "emulator.h"
 #include <stdio.h>
-
-
+#include <string.h>
 void reset(emulator_t * em) {
   init_mem(&em->mem);
   reset_cpu(&em->cpu);
+  em->debug = false;
+}
+void start_program(emulator_t * em) {
+  em->cpu.PC = read_word(em, RESET_CPU);
+}
+
+void enable_debug(emulator_t * em) {
+  em->debug = true;
+}
+void disable_debug(emulator_t * em) {
+  em->debug = true;
+}
+
+emulator_t copy_state(emulator_t *em) {
+  emulator_t new;
+  reset(&new);
+  memcpy(new.mem.data, em->mem.data, MEMORY_SIZE);
+  new.cpu.PC = em->cpu.PC;
+  new.cpu.SP = em->cpu.SP;
+  new.cpu.A = em->cpu.A;
+  new.cpu.X = em->cpu.X;
+  new.cpu.Y = em->cpu.Y;
+  new.cpu.status = em->cpu.status;
+  return new;
+}
+void debug(emulator_t * em) {
+  printf("6502 emulator status\n");
+  printf("Registers:\n");
+  printf("A: %02X %i\n", em->cpu.A, em->cpu.A);
+  printf("X: %02X %i\n", em->cpu.X, em->cpu.X);
+  printf("Y: %02X %i\n", em->cpu.Y, em->cpu.Y);
+  printf("PC: %04X %i\n", em->cpu.PC, em->cpu.PC);
+  printf("SP: %04X %i\n", em->cpu.SP, em->cpu.SP);
+  printf("STATUS: CZIDBUVN:%i%i%i%i%i%i%i%i\n",
+  em->cpu.C,em->cpu.Z,em->cpu.I,em->cpu.D,em->cpu.B,em->cpu.U,em->cpu.V,em->cpu.N);
+
+  printf("MEMORY:\n");
+  print_mem(&em->mem);
 }
 
 void memset_word(emulator_t * em, u16_t data, u16_t addr) {
@@ -121,7 +158,7 @@ void ADC(emulator_t * em, u8_t operand) {
   set_flags(em, &em->cpu.A);
   em->cpu.C = sum > 0xFF;
   // set overflow if both operands are neggative
-  em->cpu.V = same_sign && ((em->cpu.A ^ operand) & 0b10000000);
+  em->cpu.V = same_sign && (em->cpu.A & 0b10000000);
 }
 void SBC(emulator_t * em, u8_t operand) {
   ADC(em, ~operand);
@@ -141,6 +178,23 @@ u8_t LSR(emulator_t * em, u8_t operand) {
   return res;
 }
 
+u8_t ROR(emulator_t * em, u8_t operand) {
+  bool old_zero_bit = (operand & 0b00000001) > 0;
+  operand = operand >> 1;
+  if (em->cpu.C) operand |= 0b10000000;
+  em->cpu.C = old_zero_bit;
+  set_flags(em, &operand);
+  return operand;
+}
+u8_t ROL(emulator_t * em, u8_t operand) {
+  u8_t new_zero_bit = em->cpu.C ? 0b00000001 : 0;
+  em->cpu.C = (operand & 0b10000000) > 0;
+  operand = operand << 1;
+  operand |= new_zero_bit;
+  set_flags(em, &operand);
+  return operand;
+}
+
 void compare(emulator_t * em, u8_t operand, u8_t reg) {
   u8_t tmp = reg - operand;
   em->cpu.N = (tmp & 0b10000000) > 0;
@@ -151,6 +205,7 @@ void compare(emulator_t * em, u8_t operand, u8_t reg) {
 void branch_if(emulator_t * em, i32_t * cycles, bool test, bool expected){
   i8_t Offset = fetch_s_byte(em);
   if ( test == expected ) {
+
     cycles++;
     const u16_t PCOld = em->cpu.PC;
     em->cpu.PC += Offset;
@@ -159,10 +214,10 @@ void branch_if(emulator_t * em, i32_t * cycles, bool test, bool expected){
 }
 
 
-i32_t execute(emulator_t * em) {
+int execute(emulator_t * em) {
   u8_t ins, data;
   u8_t ZP_addr, addr_lb;
-  u16_t ABS_addr, ABS_addrX, ABS_addrY, sub_addr;
+  u16_t ABS_addr, ABS_addrX, ABS_addrY, sub_addr, DB_addr;
   i32_t cycles;
   ins = fetch_byte(em);
   switch(ins){
@@ -171,43 +226,51 @@ i32_t execute(emulator_t * em) {
      **/
     case INS_ADC_IM:
       cycles = 2;
-      ADC(em, fetch_byte(em));
+      data = fetch_byte(em);
+      ADC(em, data);
+      if(em->debug) printf("ADC #$%02X\n", data);
       break;
 
     case INS_ADC_ZP:
       cycles = 3;
       ZP_addr = fetch_byte(em);
       ADC(em, read_byte(em, ZP_addr));
+      if(em->debug) printf("ADC $%02X\n", ZP_addr);
       break;
 
     case INS_ADC_ZPX:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      ADC(em, read_byte(em, ZP_addr));
+      ZP_addr = fetch_byte(em);
+      ADC(em, read_byte(em, ZP_addr + em->cpu.X));
+      if(em->debug) printf("ADC $%02X, x\n", ZP_addr);
       break;
 
     case INS_ADC_ABS:
       cycles = 4;
       ABS_addr = fetch_word(em);
       ADC(em, read_byte(em, ABS_addr));
+      if(em->debug) printf("ADC $%04X\n", ABS_addr);
       break;
 
     case INS_ADC_ABSX:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &em->cpu.X, &cycles);
       ADC(em, read_byte(em, ABS_addr));
+      if(em->debug) printf("ADC $%04X, x\n", ABS_addr -  + em->cpu.X);
       break;
 
     case INS_ADC_ABSY:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &em->cpu.Y, &cycles);
       ADC(em, read_byte(em, ABS_addr));
+      if(em->debug) printf("ADC $%04X, y\n", ABS_addr - em->cpu.Y);
       break;
 
     case INS_ADC_INDX:
       cycles = 6;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      ADC(em, read_byte(em, read_word(em, ZP_addr)));
+      ZP_addr = fetch_byte(em);
+      ADC(em, read_byte(em, read_word(em, ZP_addr + em->cpu.X)));
+      if(em->debug) printf("ADC ($%02X, x)\n", ZP_addr);
       break;
 
     case INS_ADC_INDY:
@@ -217,49 +280,58 @@ i32_t execute(emulator_t * em) {
       ABS_addrY = ABS_addr + em->cpu.Y;
       if((ABS_addr ^ ABS_addrY) >> 8) cycles++; //page boundry is crossed
       ADC(em, read_byte(em, ABS_addrY));
+      if(em->debug) printf("ADC ($%02X), y\n", ZP_addr);
       break;
     /**
      *  SBC instructions
      **/
     case INS_SBC_IM:
       cycles = 2;
-      SBC(em, fetch_byte(em));
+      data = fetch_byte(em);
+      SBC(em, data);
+      if(em->debug) printf("SBC #$%02X\n", data);
       break;
 
     case INS_SBC_ZP:
       cycles = 3;
       ZP_addr = fetch_byte(em);
       SBC(em, read_byte(em, ZP_addr));
+      if(em->debug) printf("SBC $%02X\n", ZP_addr);
       break;
 
     case INS_SBC_ZPX:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      SBC(em, read_byte(em, ZP_addr));
+      ZP_addr = fetch_byte(em);
+      SBC(em, read_byte(em, ZP_addr + em->cpu.X));
+      if(em->debug) printf("SBC $%02X, x\n", ZP_addr);
       break;
 
     case INS_SBC_ABS:
       cycles = 4;
       ABS_addr = fetch_word(em);
       SBC(em, read_byte(em, ABS_addr));
+      if(em->debug) printf("SBC $%04X\n", ABS_addr);
       break;
 
     case INS_SBC_ABSX:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &em->cpu.X, &cycles);
       SBC(em, read_byte(em, ABS_addr));
+      if(em->debug) printf("SBC $%04X, x\n", ABS_addr - em->cpu.X);
       break;
 
     case INS_SBC_ABSY:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &em->cpu.Y, &cycles);
       SBC(em, read_byte(em, ABS_addr));
+      if(em->debug) printf("SBC $%04X, y\n", ABS_addr - em->cpu.Y);
       break;
 
     case INS_SBC_INDX:
       cycles = 6;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      SBC(em, read_byte(em, read_word(em, ZP_addr)));
+      ZP_addr = fetch_byte(em);
+      SBC(em, read_byte(em, read_word(em, ZP_addr + em->cpu.X)));
+      if(em->debug) printf("SBC ($%02X, x)\n", ZP_addr);
       break;
 
     case INS_SBC_INDY:
@@ -269,49 +341,58 @@ i32_t execute(emulator_t * em) {
       ABS_addrY = ABS_addr + em->cpu.Y;
       if((ABS_addr ^ ABS_addrY) >> 8) cycles++; //page boundry is crossed
       SBC(em, read_byte(em, ABS_addrY));
+      if(em->debug) printf("ADC ($%02X), y\n", ZP_addr);
       break;
     /**
      *  CMP instructions
      **/
     case INS_CMP_IM:
       cycles = 2;
-      compare(em, fetch_byte(em), em->cpu.A);
+      data = fetch_byte(em);
+      compare(em, data, em->cpu.A);
+      if(em->debug) printf("CMP #$%02X\n", data);
       break;
 
     case INS_CMP_ZP:
       cycles = 3;
       ZP_addr = fetch_byte(em);
       compare(em, read_byte(em, ZP_addr), em->cpu.A);
+      if(em->debug) printf("CMP $%02X\n", ZP_addr);
       break;
 
     case INS_CMP_ZPX:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      compare(em, read_byte(em, ZP_addr), em->cpu.A);
+      ZP_addr = fetch_byte(em);
+      compare(em, read_byte(em, ZP_addr + em->cpu.X), em->cpu.A);
+      if(em->debug) printf("CMP $%02X, x\n", ZP_addr);
       break;
 
     case INS_CMP_ABS:
       cycles = 4;
       ABS_addr = fetch_word(em);
       compare(em, read_byte(em, ABS_addr), em->cpu.A);
+      if(em->debug) printf("CMP $%04X\n", ABS_addr);
       break;
 
     case INS_CMP_ABSX:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &em->cpu.X, &cycles);
       compare(em, read_byte(em, ABS_addr), em->cpu.A);
+      if(em->debug) printf("CMP $%04X, x\n", ABS_addr - em->cpu.X);
       break;
 
     case INS_CMP_ABSY:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &em->cpu.Y, &cycles);
       compare(em, read_byte(em, ABS_addr), em->cpu.A);
+      if(em->debug) printf("CMP $%04X, y\n", ABS_addr - em->cpu.Y);
       break;
 
     case INS_CMP_INDX:
       cycles = 6;
       ZP_addr = fetch_byte(em) + em->cpu.X;
       compare(em, read_byte(em, read_word(em, ZP_addr)), em->cpu.A);
+      if(em->debug) printf("CMP ($%02X, x)\n", ZP_addr);
       break;
 
     case INS_CMP_INDY:
@@ -321,44 +402,53 @@ i32_t execute(emulator_t * em) {
       ABS_addrY = ABS_addr + em->cpu.Y;
       if((ABS_addr ^ ABS_addrY) >> 8) cycles++; //page boundry is crossed
       compare(em, read_byte(em, ABS_addrY), em->cpu.A);
+      if(em->debug) printf("CMP ($%02X), y\n", ZP_addr);
       break;
     /**
      *  CPX instructions
      **/
     case INS_CPX_IM:
       cycles = 2;
-      compare(em, fetch_byte(em), em->cpu.X);
+      data = fetch_byte(em);
+      compare(em, data, em->cpu.X);
+      if(em->debug) printf("CPX #$%02X\n", data);
       break;
 
     case INS_CPX_ZP:
       cycles = 3;
       ZP_addr = fetch_byte(em);
       compare(em, read_byte(em, ZP_addr), em->cpu.X);
+      if(em->debug) printf("CPX $%02X\n", ZP_addr);
       break;
 
     case INS_CPX_ABS:
       cycles = 4;
       ABS_addr = fetch_word(em);
       compare(em, read_byte(em, ABS_addr), em->cpu.X);
+      if(em->debug) printf("CPX $%04X\n", ABS_addr);
       break;
     /**
      *  CPY instructions
      **/
     case INS_CPY_IM:
       cycles = 2;
-      compare(em, fetch_byte(em), em->cpu.Y);
+      data = fetch_byte(em);
+      compare(em, data, em->cpu.Y);
+      if(em->debug) printf("CPY #$%02X\n", data);
       break;
 
     case INS_CPY_ZP:
       cycles = 3;
       ZP_addr = fetch_byte(em);
       compare(em, read_byte(em, ZP_addr), em->cpu.Y);
+      if(em->debug) printf("CPY $%02X\n", ZP_addr);
       break;
 
     case INS_CPY_ABS:
       cycles = 4;
       ABS_addr = fetch_word(em);
       compare(em, read_byte(em, ABS_addr), em->cpu.Y);
+      if(em->debug) printf("CPY $%04X\n", ABS_addr);
       break;
 
     /**
@@ -366,8 +456,10 @@ i32_t execute(emulator_t * em) {
      **/
     case INS_AND_IM:
       cycles = 2;
-      em->cpu.A &= fetch_byte(em);
+      data = fetch_byte(em);
+      em->cpu.A &= data;
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("AND #$%02X\n", data);
       break;
 
     case INS_AND_ZP:
@@ -375,13 +467,15 @@ i32_t execute(emulator_t * em) {
       ZP_addr = fetch_byte(em);
       em->cpu.A &= read_byte(em, ZP_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("AND $%02X\n", ZP_addr);
       break;
 
     case INS_AND_ZPX:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      em->cpu.A &= read_byte(em, ZP_addr);
+      ZP_addr = fetch_byte(em);
+      em->cpu.A &= read_byte(em, ZP_addr + em->cpu.X);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("AND $%02X, x\n", ZP_addr);
       break;
 
     case INS_AND_ABS:
@@ -389,6 +483,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = fetch_word(em);
       em->cpu.A &= read_byte(em, ABS_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("AND $%04X\n", ABS_addr);
       break;
 
     case INS_AND_ABSX:
@@ -396,6 +491,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = addr_abs_reg(em, &em->cpu.X, &cycles);
       em->cpu.A &= read_byte(em, ABS_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("AND $%04X, x\n", ABS_addr - em->cpu.X);
       break;
 
     case INS_AND_ABSY:
@@ -403,6 +499,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = addr_abs_reg(em, &em->cpu.Y, &cycles);
       em->cpu.A &= read_byte(em, ABS_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("AND $%04X, y\n", ABS_addr - em->cpu.Y);
       break;
 
     case INS_AND_INDX:
@@ -410,6 +507,7 @@ i32_t execute(emulator_t * em) {
       ZP_addr = fetch_byte(em) + em->cpu.X;
       em->cpu.A &= read_byte(em, read_word(em, ZP_addr));
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("AND ($%02X, x)\n", ZP_addr);
       break;
 
     case INS_AND_INDY:
@@ -420,14 +518,17 @@ i32_t execute(emulator_t * em) {
       if((ABS_addr ^ ABS_addrY) >> 8) cycles++; //page boundry is crossed
       em->cpu.A &= read_byte(em, ABS_addrY);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("AND ($%02X), y\n", ZP_addr);
       break;
     /**
      *  ORA instructions
      **/
     case INS_ORA_IM:
       cycles = 2;
-      em->cpu.A |= fetch_byte(em);
+      data = fetch_byte(em);
+      em->cpu.A |= data;
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("ORA #$%02X\n", data);
       break;
 
     case INS_ORA_ZP:
@@ -435,13 +536,15 @@ i32_t execute(emulator_t * em) {
       ZP_addr = fetch_byte(em);
       em->cpu.A &= read_byte(em, ZP_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("ORA $%02X\n", ZP_addr);
       break;
 
     case INS_ORA_ZPX:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      em->cpu.A |= read_byte(em, ZP_addr);
+      ZP_addr = fetch_byte(em);
+      em->cpu.A |= read_byte(em, ZP_addr + em->cpu.X);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("ORA $%02X, x\n", ZP_addr);
       break;
 
     case INS_ORA_ABS:
@@ -449,6 +552,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = fetch_word(em);
       em->cpu.A |= read_byte(em, ABS_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("ORA $%04X\n", ABS_addr);
       break;
 
     case INS_ORA_ABSX:
@@ -456,6 +560,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = addr_abs_reg(em, &em->cpu.X, &cycles);
       em->cpu.A |= read_byte(em, ABS_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("ORA $%04X, x\n", ABS_addr - em->cpu.X);
       break;
 
     case INS_ORA_ABSY:
@@ -463,6 +568,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = addr_abs_reg(em, &em->cpu.Y, &cycles);
       em->cpu.A |= read_byte(em, ABS_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("ORA $%04X, y\n", ABS_addr - em->cpu.Y);
       break;
 
     case INS_ORA_INDX:
@@ -470,6 +576,7 @@ i32_t execute(emulator_t * em) {
       ZP_addr = fetch_byte(em) + em->cpu.X;
       em->cpu.A |= read_byte(em, read_word(em, ZP_addr));
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("ORA ($%02X, x)\n", ZP_addr);
       break;
 
     case INS_ORA_INDY:
@@ -480,14 +587,17 @@ i32_t execute(emulator_t * em) {
       if((ABS_addr ^ ABS_addrY) >> 8) cycles++; //page boundry is crossed
       em->cpu.A |= read_byte(em, ABS_addrY);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("ORA ($%02X), y\n", ZP_addr);
       break;
     /**
      *  EOR instructions
      **/
     case INS_EOR_IM:
       cycles = 2;
-      em->cpu.A ^= fetch_byte(em);
+      data = fetch_byte(em);
+      em->cpu.A ^= data;
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("EOR #$%02X\n", data);
       break;
 
     case INS_EOR_ZP:
@@ -495,13 +605,15 @@ i32_t execute(emulator_t * em) {
       ZP_addr = fetch_byte(em);
       em->cpu.A |= read_byte(em, ZP_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("EOR $%02X\n", ZP_addr);
       break;
 
     case INS_EOR_ZPX:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      em->cpu.A ^= read_byte(em, ZP_addr);
+      ZP_addr = fetch_byte(em);
+      em->cpu.A ^= read_byte(em, ZP_addr + em->cpu.X);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("EOR $%02X, x\n", ZP_addr);
       break;
 
     case INS_EOR_ABS:
@@ -509,6 +621,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = fetch_word(em);
       em->cpu.A ^= read_byte(em, ABS_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("EOR $%04X\n", ABS_addr);
       break;
 
     case INS_EOR_ABSX:
@@ -516,6 +629,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = addr_abs_reg(em, &em->cpu.X, &cycles);
       em->cpu.A ^= read_byte(em, ABS_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("EOR $%04X, x\n", ABS_addr - em->cpu.X);
       break;
 
     case INS_EOR_ABSY:
@@ -523,6 +637,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = addr_abs_reg(em, &em->cpu.Y, &cycles);
       em->cpu.A ^= read_byte(em, ABS_addr);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("EOR $%04X, y\n", ABS_addr - em->cpu.Y);
       break;
 
     case INS_EOR_INDX:
@@ -530,6 +645,7 @@ i32_t execute(emulator_t * em) {
       ZP_addr = fetch_byte(em) + em->cpu.X;
       em->cpu.A ^= read_byte(em, read_word(em, ZP_addr));
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("EOR ($%02X, x)\n", ZP_addr);
       break;
 
     case INS_EOR_INDY:
@@ -540,47 +656,80 @@ i32_t execute(emulator_t * em) {
       if((ABS_addr ^ ABS_addrY) >> 8) cycles++; //page boundry is crossed
       em->cpu.A ^= read_byte(em, ABS_addrY);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("EOR ($%02X), y\n", ZP_addr);
       break;
     /**
      *  BRANCH instructions
      **/
     case INS_BCC:
       cycles = 1;
+      if(em->debug) {
+        data = read_byte(em, em->cpu.PC);
+        printf("BCC $%04X\n", data);
+      }
       branch_if(em, &cycles, em->cpu.C, false);
       break;
 
     case INS_BCS:
       cycles = 1;
+      if(em->debug) {
+        data = read_byte(em, em->cpu.PC);
+        printf("BCS $%04X\n", data);
+      }
       branch_if(em, &cycles, em->cpu.C, true);
       break;
 
     case INS_BEQ:
       cycles = 1;
+      if(em->debug) {
+        data = read_byte(em, em->cpu.PC);
+        printf("BEQ $%04X\n", data);
+      }
       branch_if(em, &cycles, em->cpu.Z, true);
       break;
 
     case INS_BMI:
       cycles = 1;
+      if(em->debug) {
+        data = read_byte(em, em->cpu.PC);
+        printf("BMI $%04X\n", data);
+      }
       branch_if(em, &cycles, em->cpu.N, true);
       break;
 
     case INS_BNE:
       cycles = 1;
+      if(em->debug) {
+        data = read_byte(em, em->cpu.PC);
+        printf("BNE $%04X\n", data);
+      }
       branch_if(em, &cycles, em->cpu.Z, false);
       break;
 
     case INS_BPL:
       cycles = 1;
+      if(em->debug) {
+        data = read_byte(em, em->cpu.PC);
+        printf("BPL $%04X\n", data);
+      }
       branch_if(em, &cycles, em->cpu.N, false);
       break;
 
     case INS_BVC:
       cycles = 1;
+      if(em->debug) {
+        data = read_byte(em, em->cpu.PC);
+        printf("BVC $%04X\n", data);
+      }
       branch_if(em, &cycles, em->cpu.V, false);
       break;
 
     case INS_BVS:
       cycles = 1;
+      if(em->debug) {
+        data = read_byte(em, em->cpu.PC);
+        printf("BVS $%04X\n", data);
+      }
       branch_if(em, &cycles, em->cpu.V, true);
       break;
     /**
@@ -593,6 +742,7 @@ i32_t execute(emulator_t * em) {
       em->cpu.Z = !(data & em->cpu.A);
       em->cpu.N =  (data & 0b10000000) != 0;
       em->cpu.V =  (data & 0b01000000) != 0;
+      if(em->debug) printf("BIT $%02X\n", ZP_addr);
       break;
 
     case INS_BIT_ABS:
@@ -602,26 +752,31 @@ i32_t execute(emulator_t * em) {
       em->cpu.Z = !(data & em->cpu.A);
       em->cpu.N =  (data & 0b10000000) != 0;
       em->cpu.V =  (data & 0b01000000) != 0;
+      if(em->debug) printf("BIT $%04X\n", ABS_addr);
       break;
 
     case INS_CLC:
       cycles = 2;
       em->cpu.C = 0;
+      if(em->debug) printf("CLC\n");
       break;
 
     case INS_CLD:
       cycles = 2;
       em->cpu.D = 0;
+      if(em->debug) printf("CLD\n");
       break;
 
     case INS_CLI:
       cycles = 2;
       em->cpu.I = 0;
+      if(em->debug) printf("CLI\n");
       break;
 
     case INS_CLV:
       cycles = 2;
       em->cpu.V = 0;
+      if(em->debug) printf("CLV\n");
       break;
     /**
      *  DEC instructions
@@ -633,15 +788,17 @@ i32_t execute(emulator_t * em) {
       data--;
       set_flags(em, &data);
       write_byte(em, data, ZP_addr);
+      if(em->debug) printf("DEC $%02X\n", ZP_addr);
       break;
 
     case INS_DEC_ZPX:
       cycles = 6;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      data = read_byte(em, ZP_addr);
+      ZP_addr = fetch_byte(em);
+      data = read_byte(em, ZP_addr + em->cpu.X);
       data--;
       set_flags(em, &data);
       write_byte(em, data, ZP_addr);
+      if(em->debug) printf("DEC $%02X, x\n", ZP_addr);
       break;
 
     case INS_DEC_ABS:
@@ -651,15 +808,17 @@ i32_t execute(emulator_t * em) {
       data--;
       set_flags(em, &data);
       write_byte(em, data, ABS_addr);
+      if(em->debug) printf("DEC $%04X\n", ABS_addr);
       break;
 
     case INS_DEC_ABSX:
       cycles = 7;
-      ABS_addr = fetch_word(em) + em->cpu.X;
-      data = read_byte(em, ABS_addr);
+      ABS_addr = fetch_word(em);
+      data = read_byte(em, ABS_addr + em->cpu.X);
       data--;
       set_flags(em, &data);
       write_byte(em, data, ABS_addr);
+      if(em->debug) printf("DEC $%04X, x\n", ABS_addr);
       break;
     /**
      *  DEY-DEX instructions
@@ -668,12 +827,14 @@ i32_t execute(emulator_t * em) {
       cycles = 2;
       em->cpu.X--;
       set_flags(em, &em->cpu.X);
+      if(em->debug) printf("DEX\n");
       break;
 
     case INS_DEY:
       cycles = 2;
       em->cpu.Y--;
       set_flags(em, &em->cpu.Y);
+      if(em->debug) printf("DEY\n");
       break;
     /**
      *  INC instructions
@@ -685,15 +846,17 @@ i32_t execute(emulator_t * em) {
       data++;
       set_flags(em, &data);
       write_byte(em, data, ZP_addr);
+      if(em->debug) printf("INC $%02X\n", ZP_addr);
       break;
 
     case INS_INC_ZPX:
       cycles = 6;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      data = read_byte(em, ZP_addr);
+      ZP_addr = fetch_byte(em);
+      data = read_byte(em, ZP_addr + em->cpu.X);
       data++;
       set_flags(em, &data);
       write_byte(em, data, ZP_addr);
+      if(em->debug) printf("INC $%02X, x\n", ZP_addr);
       break;
 
     case INS_INC_ABS:
@@ -703,15 +866,17 @@ i32_t execute(emulator_t * em) {
       data++;
       set_flags(em, &data);
       write_byte(em, data, ABS_addr);
+      if(em->debug) printf("INC $%04X\n", ABS_addr);
       break;
 
     case INS_INC_ABSX:
       cycles = 7;
-      ABS_addr = fetch_word(em) + em->cpu.X;
-      data = read_byte(em, ABS_addr);
+      ABS_addr = fetch_word(em);
+      data = read_byte(em, ABS_addr + em->cpu.X);
       data++;
       set_flags(em, &data);
       write_byte(em, data, ABS_addr);
+      if(em->debug) printf("INC $%04X, x\n", ABS_addr);
       break;
     /**
      *  INX-INY instructions
@@ -720,12 +885,14 @@ i32_t execute(emulator_t * em) {
       cycles = 2;
       em->cpu.X++;
       set_flags(em, &em->cpu.X);
+      if(em->debug) printf("INX\n");
       break;
 
     case INS_INY:
       cycles = 2;
       em->cpu.Y++;
       set_flags(em, &em->cpu.Y);
+      if(em->debug) printf("INY\n");
       break;
     /**
      *  JSR-RTS instructions
@@ -735,65 +902,78 @@ i32_t execute(emulator_t * em) {
       sub_addr = fetch_word(em);
       push_word(em, em->cpu.PC);
       em->cpu.PC = sub_addr;
+      if(em->debug) printf("JSR $%04X\n", sub_addr);
       break;
 
     case INS_RTS:
       cycles = 6;
       em->cpu.PC = pull_word(em);
+      if(em->debug) printf("RTS\n");
       break;
 
     case INS_JMP_ABS:
       cycles = 3;
       em->cpu.PC = fetch_word(em);
+      if(em->debug) printf("JMP $%04X\n", em->cpu.PC);
       break;
 
     case INS_JMP_IND:
       cycles = 5;
-      em->cpu.PC = read_word(em, fetch_word(em));
+      ABS_addr = fetch_word(em);
+      em->cpu.PC = read_word(em, ABS_addr);
+      if(em->debug) printf("JMP ($%04X)\n", ABS_addr);
       break;
     /**
      *  LDA instructions
      **/
     case INS_LDA_IM:
       cycles = 2;
-      em->cpu.A = fetch_byte(em);
+      data = fetch_byte(em);
+      em->cpu.A = data;
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("LDA #$%02X\n", data);
       break;
 
     case INS_LDA_ZP:
       cycles = 3;
       ZP_addr = fetch_byte(em);
       load_register(em, &em->cpu.A, ZP_addr);
+      if(em->debug) printf("LDA $%02X\n", ZP_addr);
       break;
 
     case INS_LDA_ZPX:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      load_register(em, &em->cpu.A, ZP_addr);
+      ZP_addr = fetch_byte(em);
+      load_register(em, &em->cpu.A, ZP_addr + em->cpu.X);
+      if(em->debug) printf("LDA $%02X, x\n", ZP_addr);
       break;
 
     case INS_LDA_ABS:
       cycles = 4;
       ABS_addr = fetch_word(em);
       load_register(em, &em->cpu.A, ABS_addr);
+      if(em->debug) printf("LDA $%04X\n", ABS_addr);
       break;
 
     case INS_LDA_ABSX:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &em->cpu.X, &cycles);
       load_register(em, &em->cpu.A, ABS_addr);
+      if(em->debug) printf("LDA $%04X, x\n", ABS_addr - em->cpu.X);
       break;
 
     case INS_LDA_ABSY:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &em->cpu.Y, &cycles);
       load_register(em, &em->cpu.A, ABS_addr);
+      if(em->debug) printf("LDA $%04X, y\n", ABS_addr - em->cpu.Y);
       break;
 
     case INS_LDA_INDX:
       cycles = 6;
       ZP_addr = fetch_byte(em) + em->cpu.X;
       load_register(em, &em->cpu.A, read_word(em, ZP_addr));
+      if(em->debug) printf("LDA ($%02X, x)\n", ZP_addr - em->cpu.X);
       break;
 
     case INS_LDA_INDY:
@@ -803,70 +983,83 @@ i32_t execute(emulator_t * em) {
       ABS_addrY = ABS_addr + em->cpu.Y;
       if((ABS_addr ^ ABS_addrY) >> 8) cycles++; //page boundry is crossed
       load_register(em, &em->cpu.A, ABS_addrY);
+      if(em->debug) printf("LDA ($%02X), y\n", ZP_addr);
       break;
     /**
      *  LDX instructions
      **/
     case INS_LDX_IM:
       cycles = 2;
-      em->cpu.X = fetch_byte(em);
+      data = fetch_byte(em);
+      em->cpu.X = data;
       set_flags(em, &em->cpu.X);
+      if(em->debug) printf("LDX #$%02X\n", data);
       break;
 
     case INS_LDX_ZP:
       cycles = 3;
       ZP_addr = fetch_byte(em);
       load_register(em, &em->cpu.X, ZP_addr);
+      if(em->debug) printf("LDX $%02X\n", ZP_addr);
     break;
 
     case INS_LDX_ZPY:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.Y;
-      load_register(em, &em->cpu.X, ZP_addr);
+      ZP_addr = fetch_byte(em);
+      load_register(em, &em->cpu.X, ZP_addr + em->cpu.Y);
+      if(em->debug) printf("LDX $%02X, y\n", ZP_addr);
       break;
 
     case INS_LDX_ABS:
       cycles = 4;
       ABS_addr = fetch_word(em);
       load_register(em, &em->cpu.X, ABS_addr);
+      if(em->debug) printf("LDX $%04X\n", ABS_addr);
       break;
 
     case INS_LDX_ABSY:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &em->cpu.Y, &cycles);
       load_register(em, &em->cpu.X, ABS_addr);
+      if(em->debug) printf("LDX $%04X, y\n", ABS_addr - em->cpu.Y);
       break;
     /**
      *  LDY instructions
      **/
     case INS_LDY_IM:
       cycles = 2;
-      em->cpu.Y = fetch_byte(em);
+      data = fetch_byte(em);
+      em->cpu.Y = data;
       set_flags(em, &em->cpu.Y);
+      if(em->debug) printf("LDY #$%02X\n", data);
       break;
 
     case INS_LDY_ZP:
       cycles = 3;
       ZP_addr = fetch_byte(em);
       load_register(em, &em->cpu.Y, ZP_addr);
+      if(em->debug) printf("LDY $%02X\n", ZP_addr);
     break;
 
     case INS_LDY_ZPX:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      load_register(em, &em->cpu.Y, ZP_addr);
+      ZP_addr = fetch_byte(em);
+      load_register(em, &em->cpu.Y, ZP_addr + em->cpu.X);
+      if(em->debug) printf("LDY $%02X, x\n", ZP_addr);
       break;
 
     case INS_LDY_ABS:
       cycles = 4;
       ABS_addr = fetch_word(em);
       load_register(em, &em->cpu.Y, ABS_addr);
+      if(em->debug) printf("LDY $%04X\n", ABS_addr);
       break;
 
     case INS_LDY_ABSX:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &em->cpu.X, &cycles);
       load_register(em, &em->cpu.Y, ABS_addr);
+      if(em->debug) printf("LDY $%04X, x\n", ABS_addr - em->cpu.X);
       break;
     /**
      *  STA instructions
@@ -875,36 +1068,42 @@ i32_t execute(emulator_t * em) {
       cycles = 3;
       ZP_addr = fetch_byte(em);
       write_byte(em, em->cpu.A, ZP_addr);
+      if(em->debug) printf("STA $%02X\n", ZP_addr);
       break;
 
     case INS_STA_ZPX:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      write_byte(em, em->cpu.A, ZP_addr);
+      ZP_addr = fetch_byte(em);
+      write_byte(em, em->cpu.A, ZP_addr + em->cpu.X);
+      if(em->debug) printf("STA $%02X, x\n", ZP_addr);
       break;
 
     case INS_STA_ABS:
       cycles = 4;
       ABS_addr = fetch_word(em);
       write_byte(em, em->cpu.A, ABS_addr);
+      if(em->debug) printf("STA $%04X\n", ABS_addr);
       break;
 
     case INS_STA_ABSX:
       cycles = 5;
       ABS_addr = addr_abs_reg_5(em, &em->cpu.X);
       write_byte(em, em->cpu.A, ABS_addr);
+      if(em->debug) printf("STA $%04X, x\n", ABS_addr - em->cpu.X);
       break;
 
     case INS_STA_ABSY:
       cycles = 5;
       ABS_addr = addr_abs_reg_5(em, &em->cpu.Y);
       write_byte(em, em->cpu.A, ABS_addr);
+      if(em->debug) printf("STA $%04X, y\n", ABS_addr - em->cpu.Y);
       break;
 
     case INS_STA_INDX:
       cycles = 6;
       ZP_addr = fetch_byte(em) + em->cpu.X;
       write_byte(em, em->cpu.A, read_word(em, ZP_addr));
+      if(em->debug) printf("STA ($%02X, x)\n", ZP_addr);
       break;
 
     case INS_STA_INDY:
@@ -912,6 +1111,7 @@ i32_t execute(emulator_t * em) {
       ZP_addr = fetch_byte(em);
       ABS_addr = read_word(em, ZP_addr);
       write_byte(em, em->cpu.A, ABS_addr + em->cpu.Y);
+      if(em->debug) printf("STA ($%02X), y\n", ZP_addr);
       break;
     /**
      *  STX instructions
@@ -920,18 +1120,21 @@ i32_t execute(emulator_t * em) {
       cycles = 3;
       ZP_addr = fetch_byte(em);
       write_byte(em, em->cpu.X, ZP_addr);
+      if(em->debug) printf("STX $%02X\n", ZP_addr);
       break;
 
     case INS_STX_ZPY:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.Y;
-      write_byte(em, em->cpu.X, ZP_addr);
+      ZP_addr = fetch_byte(em);
+      write_byte(em, em->cpu.X, ZP_addr + em->cpu.Y);
+      if(em->debug) printf("STX $%02X, y\n", ZP_addr);
       break;
 
     case INS_STX_ABS:
       cycles = 4;
       ABS_addr = fetch_word(em);
       write_byte(em, em->cpu.X, ABS_addr);
+      if(em->debug) printf("STX $%04X\n", ABS_addr);
       break;
     /**
      *  STY instructions
@@ -940,18 +1143,21 @@ i32_t execute(emulator_t * em) {
       cycles = 3;
       ZP_addr = fetch_byte(em);
       write_byte(em, em->cpu.Y, ZP_addr);
+      if(em->debug) printf("STY $%02X\n", ZP_addr);
       break;
 
     case INS_STY_ZPX:
       cycles = 4;
-      ZP_addr = fetch_byte(em) + em->cpu.X;
-      write_byte(em, em->cpu.Y, ZP_addr);
+      ZP_addr = fetch_byte(em);
+      write_byte(em, em->cpu.Y, ZP_addr + em->cpu.X);
+      if(em->debug) printf("STY $%02X, x\n", ZP_addr);
       break;
 
     case INS_STY_ABS:
       cycles = 4;
       ABS_addr = fetch_word(em);
       write_byte(em, em->cpu.Y, ABS_addr);
+      if(em->debug) printf("STY $%04X\n", ABS_addr);
       break;
     /**
      *  LSR instructions
@@ -959,6 +1165,7 @@ i32_t execute(emulator_t * em) {
     case INS_LSR_ACC:
       cycles = 2;
       em->cpu.A = LSR(em, em->cpu.A);
+      if(em->debug) printf("LSR A\n");
       break;
 
     case INS_LSR_ZP:
@@ -966,6 +1173,7 @@ i32_t execute(emulator_t * em) {
       ZP_addr = fetch_byte(em);
       data = read_byte(em, ZP_addr);
       write_byte(em, LSR(em, data), ZP_addr);
+      if(em->debug) printf("LSR $%02X\n", ZP_addr);
       break;
 
     case INS_LSR_ZPX:
@@ -973,6 +1181,7 @@ i32_t execute(emulator_t * em) {
       ZP_addr = fetch_byte(em) + em->cpu.X;
       data = read_byte(em, ZP_addr);
       write_byte(em, LSR(em, data), ZP_addr);
+      if(em->debug) printf("LSR $%02X, x\n", ZP_addr - em->cpu.X);
       break;
 
     case INS_LSR_ABS:
@@ -980,6 +1189,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = fetch_word(em);
       data = read_byte(em, ABS_addr);
       write_byte(em, LSR(em, data), ABS_addr);
+      if(em->debug) printf("LSR $%04X\n", ABS_addr);
       break;
 
     case INS_LSR_ABSX:
@@ -987,6 +1197,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = fetch_word(em) + em->cpu.X;
       data = read_byte(em, ABS_addr);
       write_byte(em, LSR(em, data), ABS_addr);
+      if(em->debug) printf("LSR $%04X, x\n", ABS_addr - em->cpu.X);
       break;
     /**
      *  ASL instructions
@@ -994,6 +1205,7 @@ i32_t execute(emulator_t * em) {
     case INS_ASL_ACC:
       cycles = 2;
       em->cpu.A = ASL(em, em->cpu.A);
+      if(em->debug) printf("ASL A\n");
       break;
 
     case INS_ASL_ZP:
@@ -1001,6 +1213,7 @@ i32_t execute(emulator_t * em) {
       ZP_addr = fetch_byte(em);
       data = read_byte(em, ZP_addr);
       write_byte(em, ASL(em, data), ZP_addr);
+      if(em->debug) printf("ASL $%02X\n", ZP_addr);
       break;
 
     case INS_ASL_ZPX:
@@ -1008,6 +1221,7 @@ i32_t execute(emulator_t * em) {
       ZP_addr = fetch_byte(em) + em->cpu.X;
       data = read_byte(em, ZP_addr);
       write_byte(em, ASL(em, data), ZP_addr);
+      if(em->debug) printf("ASL $%02X, x\n", ZP_addr - em->cpu.X);
       break;
 
     case INS_ASL_ABS:
@@ -1015,6 +1229,7 @@ i32_t execute(emulator_t * em) {
       ABS_addr = fetch_word(em);
       data = read_byte(em, ABS_addr);
       write_byte(em, ASL(em, data), ABS_addr);
+      if(em->debug) printf("ASL $%04X\n", ABS_addr);
       break;
 
     case INS_ASL_ABSX:
@@ -1022,12 +1237,95 @@ i32_t execute(emulator_t * em) {
       ABS_addr = fetch_word(em) + em->cpu.X;
       data = read_byte(em, ABS_addr);
       write_byte(em, ASL(em, data), ABS_addr);
+      if(em->debug) printf("ASL $%04X, x\n", ABS_addr - em->cpu.X);
       break;
+    /**
+     *  ROL instructions
+     **/
+    case INS_ROL_ACC:
+      cycles = 2;
+      em->cpu.A = ROL(em, em->cpu.A);
+      if(em->debug) printf("ROL A\n");
+      break;
+
+    case INS_ROL_ZP:
+      cycles = 5;
+      ZP_addr = fetch_byte(em);
+      data = read_byte(em, ZP_addr);
+      write_byte(em, ROL(em, data), ZP_addr);
+      if(em->debug) printf("ROL $%02X\n", ZP_addr);
+      break;
+
+    case INS_ROL_ZPX:
+      cycles = 6;
+      ZP_addr = fetch_byte(em) + em->cpu.X;
+      data = read_byte(em, ZP_addr);
+      write_byte(em, ROL(em, data), ZP_addr);
+      if(em->debug) printf("ROL $%02X, x\n", ZP_addr - em->cpu.X);
+      break;
+
+    case INS_ROL_ABS:
+      cycles = 6;
+      ABS_addr = fetch_word(em);
+      data = read_byte(em, ABS_addr);
+      write_byte(em, ROL(em, data), ABS_addr);
+      if(em->debug) printf("ROL $%04X\n", ABS_addr);
+      break;
+
+    case INS_ROL_ABSX:
+      cycles = 7;
+      ABS_addr = fetch_word(em) + em->cpu.X;
+      data = read_byte(em, ABS_addr);
+      write_byte(em, ROL(em, data), ABS_addr);
+      if(em->debug) printf("ROL $%04X, x\n", ABS_addr - em->cpu.X);
+      break;
+    /**
+     *  ROR instructions
+     **/
+    case INS_ROR_ACC:
+      cycles = 2;
+      em->cpu.A = ROR(em, em->cpu.A);
+      if(em->debug) printf("ROR A\n");
+      break;
+
+    case INS_ROR_ZP:
+      cycles = 5;
+      ZP_addr = fetch_byte(em);
+      data = read_byte(em, ZP_addr);
+      write_byte(em, ROR(em, data), ZP_addr);
+      if(em->debug) printf("ROR $%02X\n", ZP_addr);
+      break;
+
+    case INS_ROR_ZPX:
+      cycles = 6;
+      ZP_addr = fetch_byte(em) + em->cpu.X;
+      data = read_byte(em, ZP_addr);
+      write_byte(em, ROR(em, data), ZP_addr);
+      if(em->debug) printf("ROR $%02X, x\n", ZP_addr - em->cpu.X);
+      break;
+
+    case INS_ROR_ABS:
+      cycles = 6;
+      ABS_addr = fetch_word(em);
+      data = read_byte(em, ABS_addr);
+      write_byte(em, ROR(em, data), ABS_addr);
+      if(em->debug) printf("ROR $%04X\n", ABS_addr);
+      break;
+
+    case INS_ROR_ABSX:
+      cycles = 7;
+      ABS_addr = fetch_word(em) + em->cpu.X;
+      data = read_byte(em, ABS_addr);
+      write_byte(em, ROR(em, data), ABS_addr);
+      if(em->debug) printf("ROR $%04X, x\n", ABS_addr - em->cpu.X);
+      break;
+
     /**
      *  NOP instructions
      **/
     case INS_NOP:
       cycles = 1;
+      if(em->debug) printf("NOP\n");
       break;
     /**
      *  STACK instructions
@@ -1035,38 +1333,52 @@ i32_t execute(emulator_t * em) {
     case INS_PHA:
       cycles = 3;
       push_byte(em, em->cpu.A);
+      if(em->debug) printf("PHA\n");
       break;
 
     case INS_PHP:
       cycles = 3;
       push_byte(em, em->cpu.status | 0b00001100);
+      if(em->debug) printf("PHP\n");
       break;
 
     case INS_PLA:
       cycles = 4;
       em->cpu.A = pull_byte(em);
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("PLA\n");
       break;
 
     case INS_PLP:
       cycles = 4;
       em->cpu.status = pull_byte(em);
+      if(em->debug) printf("PLP\n");
       break;
 
-    case INS_ROL_ACC:  printf("unsuported instruction"); break;
-    case INS_ROL_ZP:   printf("unsuported instruction"); break;
-    case INS_ROL_ZPX:  printf("unsuported instruction"); break;
-    case INS_ROL_ABS:  printf("unsuported instruction"); break;
-    case INS_ROL_ABSX: printf("unsuported instruction"); break;
-    case INS_ROR_ACC:  printf("unsuported instruction"); break;
-    case INS_ROR_ZP:   printf("unsuported instruction"); break;
-    case INS_ROR_ZPX:  printf("unsuported instruction"); break;
-    case INS_ROR_ABS:  printf("unsuported instruction"); break;
-    case INS_ROR_ABSX: printf("unsuported instruction"); break;
-    case INS_RTI:      printf("unsuported instruction"); break;
-    case INS_SEC:      printf("unsuported instruction"); break;
-    case INS_SED:      printf("unsuported instruction"); break;
-    case INS_SEI:      printf("unsuported instruction"); break;
+    case INS_RTI:
+      cycles = 6;
+      em->cpu.status = pull_byte(em);
+      em->cpu.PC = pull_word(em);
+      if(em->debug) printf("RTI\n");
+      break;
+
+    case INS_SEC:
+      cycles = 2;
+      em->cpu.C = 1;
+      if(em->debug) printf("SEC\n");
+      break;
+
+    case INS_SED:
+      cycles = 2;
+      em->cpu.D = 1;
+      if(em->debug) printf("SED\n");
+      break;
+
+    case INS_SEI:
+      cycles = 2;
+      em->cpu.I = 1;
+      if(em->debug) printf("SEI\n");
+      break;
     /**
      *  TRANSFER instructions
      **/
@@ -1074,38 +1386,46 @@ i32_t execute(emulator_t * em) {
       cycles = 2;
       em->cpu.X = em->cpu.A;
       set_flags(em, &em->cpu.X);
+      if(em->debug) printf("TAX\n");
       break;
 
     case INS_TAY:
       cycles = 2;
       em->cpu.Y = em->cpu.SP;
       set_flags(em, &em->cpu.Y);
+      if(em->debug) printf("TAY\n");
       break;
 
     case INS_TSX:
       cycles = 2;
       em->cpu.X = em->cpu.SP;
       set_flags(em, &em->cpu.X);
+      if(em->debug) printf("TSX\n");
       break;
 
     case INS_TXA:
       cycles = 2;
       em->cpu.A = em->cpu.X;
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("TXA\n");
       break;
 
     case INS_TXS:
       cycles = 2;
       em->cpu.SP = em->cpu.X;
+      if(em->debug) printf("TXS\n");
       break;
 
     case INS_TYA:
       cycles = 2;
       em->cpu.A = em->cpu.Y;
       set_flags(em, &em->cpu.A);
+      if(em->debug) printf("TYA\n");
       break;
 
-    case INS_BRK: return -1;
+    case INS_BRK:
+      if(em->debug) printf("BRK\n");
+      return -1;
 
     default:
       printf("not a valid instruction");

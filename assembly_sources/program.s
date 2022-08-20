@@ -1,15 +1,20 @@
  .org $8000
 
- lda #$ff
- sta $6002
 
- lda #$55
- sta $6000
 
- lda #$aa
- sta $6000
+  lda #$01
+  clc
+  adc #$01
+  sta $FFFF
 
- jmp $8005
+loop:
+  lda #$55
+  sta $6000
+
+  lda #$aa
+  sta $6000
+
+  jmp loop
 
  .org $fffc
  .word $8000
