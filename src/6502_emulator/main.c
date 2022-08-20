@@ -75,7 +75,7 @@ void main_loop(SDL_Window * window, SDL_Renderer * renderer,
   while (!quit)
   {
     for(int i = 0; i < 100*1290; i++) execute(em);
-    
+
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
     SDL_RenderClear(renderer);
 
@@ -116,7 +116,7 @@ int main(int argc, char * args[]) {
   SDL_Renderer * renderer = NULL;
   emulator_t em;
   SDL_Event event;
-
+  
   reset(&em);
   read_mem_file(&em.mem, "program.bin");
   start_program(&em);
