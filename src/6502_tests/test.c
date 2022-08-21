@@ -5,11 +5,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "../6502_emulator/emulator.h"
+#include "../6502_emulator/m6502.h"
 #include "6502_tests.h"
 
 int main(int argc, char const *argv[]) {
-  emulator_t em;
+  m6502_t em;
 
   test_LDA(&em);
   test_LDX(&em);

@@ -6,20 +6,20 @@
 #define _6502_TESTS_H_
 
 #include <stdbool.h>
-#include "../6502_emulator/emulator.h"
+#include "../6502_emulator/m6502.h"
 
 void test(bool success, const char * msg);
 
 
-void test_LDA(emulator_t * em);
-void test_LDX(emulator_t * em);
-void test_LDY(emulator_t * em);
-void test_STA(emulator_t * em);
-void test_STX(emulator_t * em);
-void test_STY(emulator_t * em);
-void test_JSR(emulator_t * em);
-void test_RTS(emulator_t * em);
-void test_JMP(emulator_t * em);
+void test_LDA(m6502_t * em);
+void test_LDX(m6502_t * em);
+void test_LDY(m6502_t * em);
+void test_STA(m6502_t * em);
+void test_STX(m6502_t * em);
+void test_STY(m6502_t * em);
+void test_JSR(m6502_t * em);
+void test_RTS(m6502_t * em);
+void test_JMP(m6502_t * em);
 
 
 #endif /* _6502_TESTS_H_ */

@@ -2,7 +2,7 @@
 ///        @author Gustaf Franzén :: https://github.com/BjorneEk;        ///
 ////////////////////////////////////////////////////////////////////////////
 
-#include "../6502_emulator/emulator.h"
+#include "../6502_emulator/m6502.h"
 #include "6502_tests.h"
 #include <stdio.h>
 
@@ -16,67 +16,67 @@ void test(bool success, const char * msg) {
   else
     printf("[\033[32;1;4mTest succeded\033[0m] %s\n", msg);
 }
-void write_IM(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_IM(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   write_byte(em, ins, em->cpu.PC);
   write_byte(em, val, em->cpu.PC+1);
   *addr = 0;
 }
 
-void write_ZP(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_ZP(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   write_byte(em, ins, em->cpu.PC);
   write_byte(em, 0xA6, em->cpu.PC+1);
   write_byte(em, val, 0xA6);
   *addr = 0xA6;
 }
-void write_ZPX(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_ZPX(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   em->cpu.X = 0x02;
   write_byte(em, ins, em->cpu.PC);
   write_byte(em, 0xA6, em->cpu.PC + 1);
   write_byte(em, val, 0xA6 + 0x02);
   *addr = 0xA6 + 0x02;
 }
-void write_ZPY(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_ZPY(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   em->cpu.Y = 0x02;
   write_byte(em, ins, em->cpu.PC);
   write_byte(em, 0xA6, em->cpu.PC + 1);
   write_byte(em, val, 0xA6 + 0x02);
   *addr = 0xA6 + 0x02;
 }
-void write_ABS(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_ABS(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   write_byte(em, ins, em->cpu.PC);
   write_word(em, 0xA6FF, em->cpu.PC + 1);
   write_word(em, val, 0xA6FF);
   *addr = 0xA6FF;
 }
-void write_ABSX(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_ABSX(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   em->cpu.X = 0x02;
   write_byte(em, ins, em->cpu.PC);
   write_word(em, 0xA600, em->cpu.PC + 1);
   write_word(em, val, 0xA600 + 0x02);
   *addr = 0xA600 + 0x02;
 }
-void write_ABSX_5(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_ABSX_5(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   em->cpu.X = 0x02;
   write_byte(em, ins, em->cpu.PC);
   write_word(em, 0xA6FF, em->cpu.PC + 1);
   write_word(em, val, 0xA6FF + 0x02);
   *addr = 0xA6FF + 0x02;
 }
-void write_ABSY(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_ABSY(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   em->cpu.Y = 0x02;
   write_byte(em, ins, em->cpu.PC);
   write_word(em, 0xA600, em->cpu.PC + 1);
   write_word(em, val, 0xA600 + 0x02);
   *addr = 0xA600 + 0x02;
 }
-void write_ABSY_5(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_ABSY_5(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   em->cpu.Y = 0x02;
   write_byte(em, ins, em->cpu.PC);
   write_word(em, 0xA6FF, em->cpu.PC + 1);
   write_word(em, val, 0xA6FF + 0x02);
   *addr = 0xA6FF + 0x02;
 }
-void write_INDX(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_INDX(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   em->cpu.X = 0x02;
 
   write_byte(em, ins, em->cpu.PC);
@@ -85,7 +85,7 @@ void write_INDX(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
   write_byte(em, val, 0xABAB);
   *addr = 0xABAB;
 }
-void write_INDY_6(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_INDY_6(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   em->cpu.Y = 0x02;
 
   write_byte(em, ins, em->cpu.PC);
@@ -94,7 +94,7 @@ void write_INDY_6(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
   write_byte(em, val, 0xA6FF + 0x02);
   *addr = 0xA6FF + 0x02;
 }
-void write_INDY(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
+void write_INDY(m6502_t * em, u8_t ins, u8_t val, u16_t * addr) {
   em->cpu.Y = 0x02;
 
   write_byte(em, ins, em->cpu.PC);
@@ -104,133 +104,133 @@ void write_INDY(emulator_t * em, u8_t ins, u8_t val, u16_t * addr) {
   *addr = 0xA600 + 0x02;
 }
 
-void prep_LD_IM(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_IM(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   write_IM(em, ins, val, addr);
 }
-void prep_LD_ZP(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_ZP(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   write_ZP(em, ins, val, addr);
 }
-void prep_LD_ZPX(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_ZPX(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
 
   enable_debug(em);
   write_ZPX(em, ins, val, addr);
 }
-void prep_LD_ZPY(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_ZPY(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   write_ZPY(em, ins, val, addr);
 }
-void prep_LD_ABS(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_ABS(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   write_ABS(em, ins, val, addr);
 }
-void prep_LD_ABSX(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_ABSX(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   write_ABSX(em, ins, val, addr);
 }
-void prep_LD_ABSX_5(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_ABSX_5(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   write_ABSX_5(em, ins, val, addr);
 }
-void prep_LD_ABSY(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_ABSY(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   write_ABSY(em, ins, val, addr);
 }
-void prep_LD_ABSY_5(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_ABSY_5(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   write_ABSY_5(em, ins, val, addr);
 }
-void prep_LD_INDX(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_INDX(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   write_INDX(em, ins, val, addr);
 }
-void prep_LD_INDY_6(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_INDY_6(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   write_INDY_6(em, ins, val, addr);
 }
-void prep_LD_INDY(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_LD_INDY(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   write_INDY(em, ins, val, addr);
 }
-void prep_ST_ZP(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_ST_ZP(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   *reg = val;
   write_ZP(em, ins, 0x00, addr);
 }
-void prep_ST_ZPX(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_ST_ZPX(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   *reg = val;
   write_ZPX(em, ins, 0x00, addr);
 }
-void prep_ST_ZPY(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_ST_ZPY(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   *reg = val;
   write_ZPY(em, ins, 0x00, addr);
 }
-void prep_ST_ABS(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_ST_ABS(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   *reg = val;
   write_ABS(em, ins, 0x00, addr);
 }
-void prep_ST_ABSX(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_ST_ABSX(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   *reg = val;
   write_ABSX(em, ins, 0x00, addr);
 }
-void prep_ST_ABSX_5(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_ST_ABSX_5(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   *reg = val;
   write_ABSX_5(em, ins, 0x00, addr);
 }
-void prep_ST_ABSY(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_ST_ABSY(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   *reg = val;
   write_ABSY(em, ins, 0x00, addr);
 }
-void prep_ST_INDX(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_ST_INDX(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   *reg = val;
   write_INDX(em, ins, 0x00, addr);
 }
-void prep_ST_INDY(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
+void prep_ST_INDY(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr) {
   reset(em);
   enable_debug(em);
   *reg = val;
   write_INDY(em, ins, 0x00, addr);
 }
-void test_LD(emulator_t * em, u8_t *reg, u8_t operand,
-  emulator_t pre_state, u16_t addr){
+void test_LD(m6502_t * em, u8_t *reg, u8_t operand,
+  m6502_t pre_state, u16_t addr){
   test(*reg == operand, "loaded correct value");
   test(!em->cpu.Z, "zero flag");
   test(!em->cpu.N, "negative flag");
 }
-void test_ST(emulator_t * em, u8_t *reg, u8_t operand,
-  emulator_t pre_state, u16_t addr){
+void test_ST(m6502_t * em, u8_t *reg, u8_t operand,
+  m6502_t pre_state, u16_t addr){
   test(read_byte(em, addr) == operand, "stored correct value");
 }
-void test_ADC(emulator_t * em, u8_t *reg, u8_t operand,
-  emulator_t pre_state, u16_t addr){
+void test_ADC(m6502_t * em, u8_t *reg, u8_t operand,
+  m6502_t pre_state, u16_t addr){
   const bool same_sign = !((em->cpu.A ^ operand) & 0b10000000);
   u16_t res;
   res = 0;
@@ -240,17 +240,17 @@ void test_ADC(emulator_t * em, u8_t *reg, u8_t operand,
 }
 
 void test_INS(
-  emulator_t * em, u8_t ins, u8_t * reg,  i32_t cycles,
-  void (prep_func)(emulator_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr),
-  void (test_func)(emulator_t * em, u8_t *reg, u8_t operand,emulator_t pre_state, u16_t addr)) {
+  m6502_t * em, u8_t ins, u8_t * reg,  i32_t cycles,
+  void (prep_func)(m6502_t * em, u8_t ins, u8_t * reg, u8_t val, u16_t * addr),
+  void (test_func)(m6502_t * em, u8_t *reg, u8_t operand,m6502_t pre_state, u16_t addr)) {
   u16_t addr;
   prep_func(em, ins, reg, 0x42, &addr);
-  emulator_t pre_state = copy_state(em);
+  m6502_t pre_state = copy_state(em);
   test(cycles == execute(em), "correct cycles");
   test_func(em, reg, 0x42, pre_state, addr);
 }
 
-void test_JMP_ABS(emulator_t * em) {
+void test_JMP_ABS(m6502_t * em) {
   printf("JMP Absolute test:\n");
 
   reset(em);
@@ -264,7 +264,7 @@ void test_JMP_ABS(emulator_t * em) {
   test(read_byte(em, em->cpu.PC) == 0x42, "correct jump location");
 }
 
-void test_JMP_IND(emulator_t * em) {
+void test_JMP_IND(m6502_t * em) {
   printf("JMP Inderect test:\n");
 
   reset(em);
@@ -279,7 +279,7 @@ void test_JMP_IND(emulator_t * em) {
   test(read_byte(em, em->cpu.PC) == 0x42, "correct jump location");
 }
 
-void test_LDA(emulator_t * em) {
+void test_LDA(m6502_t * em) {
   printf("LDA Imidiate test:\n");
   test_INS(em, INS_LDA_IM, &em->cpu.A, 2, prep_LD_IM, test_LD);
   printf("LDA ZeroPage test:\n");
@@ -303,7 +303,7 @@ void test_LDA(emulator_t * em) {
   printf("LDA InderectY 5 cycle test test:\n");
   test_INS(em, INS_LDA_INDY, &em->cpu.A, 5, prep_LD_INDY, test_LD);
 }
-void test_LDX(emulator_t * em) {
+void test_LDX(m6502_t * em) {
   printf("LDX Imidiate test:\n");
   test_INS(em, INS_LDX_IM, &em->cpu.X, 2, prep_LD_IM, test_LD);
   printf("LDX ZeroPage test:\n");
@@ -317,7 +317,7 @@ void test_LDX(emulator_t * em) {
   printf("LDX AbsoluteY 4 cycle test:\n");
   test_INS(em, INS_LDX_ABSY, &em->cpu.X, 4, prep_LD_ABSY, test_LD);
 }
-void test_LDY(emulator_t * em) {
+void test_LDY(m6502_t * em) {
   printf("LDY Imidiate test:\n");
   test_INS(em, INS_LDY_IM, &em->cpu.Y, 2, prep_LD_IM, test_LD);
   printf("LDY ZeroPage test:\n");
@@ -331,7 +331,7 @@ void test_LDY(emulator_t * em) {
   printf("LDY AbsoluteY 4 cycle test:\n");
   test_INS(em, INS_LDY_ABSX, &em->cpu.Y, 4, prep_LD_ABSX, test_LD);
 }
-void test_STA(emulator_t * em) {
+void test_STA(m6502_t * em) {
   printf("STA ZeroPage test:\n");
   test_INS(em, INS_STA_ZP, &em->cpu.A, 3, prep_ST_ZP, test_ST);
   printf("STA ZeroPageX test:\n");
@@ -347,7 +347,7 @@ void test_STA(emulator_t * em) {
   printf("STA InderectY test:\n");
   test_INS(em, INS_STA_INDY, &em->cpu.A, 6, prep_ST_INDY, test_ST);
 }
-void test_STX(emulator_t * em) {
+void test_STX(m6502_t * em) {
   printf("STX ZeroPage test:\n");
   test_INS(em, INS_STX_ZP, &em->cpu.X, 3, prep_ST_ZP, test_ST);
   printf("STX ZeroPageY test:\n");
@@ -355,7 +355,7 @@ void test_STX(emulator_t * em) {
   printf("STX Absolute test:\n");
   test_INS(em, INS_STX_ABS, &em->cpu.X, 4, prep_ST_ABS, test_ST);
 }
-void test_STY(emulator_t * em) {
+void test_STY(m6502_t * em) {
   printf("STY ZeroPage test:\n");
   test_INS(em, INS_STY_ZP, &em->cpu.Y, 3, prep_ST_ZP, test_ST);
   printf("STY ZeroPageX test:\n");
@@ -363,7 +363,7 @@ void test_STY(emulator_t * em) {
   printf("STY Absolute test:\n");
   test_INS(em, INS_STY_ABS, &em->cpu.Y, 4, prep_ST_ABS, test_ST);
 }
-void test_JSR(emulator_t * em) {
+void test_JSR(m6502_t * em) {
   printf("JSR test:\n");
 
   reset(em);
@@ -380,7 +380,7 @@ void test_JSR(emulator_t * em) {
   test(prev_pc == read_word(em, 0x0100 | em->cpu.SP+1),
   "stack contains previous program counter");
 }
-void test_RTS(emulator_t * em) {
+void test_RTS(m6502_t * em) {
   printf("RTS test:\n");
 
   reset(em);
@@ -397,7 +397,7 @@ void test_RTS(emulator_t * em) {
   test(read_byte(em, em->cpu.PC) == 0x42, "correct return location");
   test(em->cpu.SP == 0xFF, "stack pointert returned correctly");
 }
-void test_JMP(emulator_t * em) {
+void test_JMP(m6502_t * em) {
   test_JMP_ABS(em);
   test_JMP_IND(em);
 }

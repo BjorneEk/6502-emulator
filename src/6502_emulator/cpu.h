@@ -216,10 +216,9 @@
 #define INS_TYA      0x98
 
 
-
-
 #define RESET_CPU 0xFFFC
 #define RESET_STACK 0x00FF
+#define STACK_OFFSET 0x0100
 
 typedef struct instruction {
   u8_t code, cycles, bytes;

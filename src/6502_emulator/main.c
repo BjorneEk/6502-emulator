@@ -7,16 +7,28 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <errno.h>
-
 #include <stdio.h>
 #include <stdlib.h>
-#include "emulator.h"
+#include "m6502.h"
 
 #define WIDTH  100
 #define HEIGHT 64
+
 #define PIXEL_SIZE 20
+
+#define RED_BM   (0b00110000)
+#define GREEN_BM (0b00001100)
+#define BLUE_BM  (0b00000011)
+
+
+#define RED_VALUE   ((0xFF) * ((float)((pbyte & RED_BM) >> 4)/3))
+#define GREEN_VALUE ((0xFF) * ((float)((pbyte & GREEN_BM) >> 2)/3))
+#define BLUE_VALUE  ((0xFF) * (float)(pbyte & BLUE_BM)/3)
+
+#define CYCLES_PER_REPAINT (32000)
+
 #define VRAM_START 0x2000
-#define vram_at(_x, _y) (uint16_t) (((VIDPAGE)+(_x))+((160) * (_y)))
+#define VRAM_CORD(_x, _y) (uint16_t) (((VRAM_START) + (_x)) + ((128) * (_y)))
 
 void init_window(SDL_Window ** window, SDL_Renderer ** renderer) {
   SDL_Init(SDL_INIT_EVERYTHING);
@@ -69,39 +81,32 @@ bool event_loop(SDL_Event * event)
 }
 
 void main_loop(SDL_Window * window, SDL_Renderer * renderer,
-               SDL_Event * event, emulator_t * em) {
-  bool quit = false;
+               SDL_Event * event, m6502_t * em) {
+  int i, j;
+  u8_t pbyte;
+  SDL_Rect pixel;
+  bool quit;
+
+  quit = false;
 
   while (!quit)
   {
-    for(int i = 0; i < 100*1290; i++) execute(em);
+    for(i = 0; i < CYCLES_PER_REPAINT; i++) execute(em);
 
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
     SDL_RenderClear(renderer);
 
-    for(int j = 0; j < 64; j++) {
-      for (int i = 0; i < 100; i ++) {
-        u8_t pbyte = read_byte(em, (VRAM_START + i + (128*j)));
-        SDL_SetRenderDrawColor(renderer,0,0,0, 0);
-        SDL_Rect pixel = (SDL_Rect) {
-          .y=j*PIXEL_SIZE,.x=i*PIXEL_SIZE,
-          .h=PIXEL_SIZE,.w=PIXEL_SIZE
-        };
-        SDL_RenderFillRect(renderer, &pixel);
+    for(i = 0; i < WIDTH; i++)
+      for (j = 0; j < HEIGHT; j ++) {
+        pbyte = read_byte(em, VRAM_CORD(i, j));
 
-        SDL_SetRenderDrawColor(renderer,
-          (0xFF) * ((float)((pbyte & 0b00110000) >> 4)/3),
-          (0xFF) * ((float)((pbyte & 0b00001100) >> 2)/3),
-          (0xFF) * (float)(pbyte & 0b00000011)/3, 0
-        );
+        SDL_SetRenderDrawColor(renderer, RED_VALUE, GREEN_VALUE, BLUE_VALUE, 0);
         pixel = (SDL_Rect){
           .y=(j*PIXEL_SIZE)+1,.x=(i*PIXEL_SIZE)+1,
           .h=PIXEL_SIZE-2,.w=PIXEL_SIZE-2
         };
         SDL_RenderFillRect(renderer, &pixel);
       }
-
-    }
     /**
      *   update screen?
      **/
@@ -114,15 +119,12 @@ void main_loop(SDL_Window * window, SDL_Renderer * renderer,
 int main(int argc, char * args[]) {
   SDL_Window   * window   = NULL;
   SDL_Renderer * renderer = NULL;
-  emulator_t em;
+  m6502_t em;
   SDL_Event event;
-  
+
   reset(&em);
   read_mem_file(&em.mem, "program.bin");
   start_program(&em);
-  for(int i = 1; i < 0xFF+1; i++) {
-    execute(&em);
-  }
   init_window(&window, &renderer);
   main_loop(window, renderer, &event, &em);
 
