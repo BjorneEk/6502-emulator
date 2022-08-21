@@ -14,7 +14,7 @@ void init_mem(memory_t * mem) {
   for (i = 0; i < MEMORY_SIZE; i++) mem->data[i] = 0;
 }
 
-void read_mem_file(memory_t * mem, const char * filename) {
+int read_mem_file(memory_t * mem, const char * filename) {
   FILE  *  file;
   u32_t   mem_len;
 
@@ -23,7 +23,7 @@ void read_mem_file(memory_t * mem, const char * filename) {
   file = fopen(filename, "rb");
   if (file == NULL) {
     log_error_str("could not open file", filename);
-    return;
+    return -1;
   }
 
   /* get size of file */
@@ -33,11 +33,12 @@ void read_mem_file(memory_t * mem, const char * filename) {
   fseek(file, 0, SEEK_SET);
   if(mem_len != ROM_SIZE) {
     log_error_int("error in read memory size", mem_len);
-    return;
+    return -1;
   }
   /* read file into a buffer and close it*/
   fread(&mem->data[0x8000], mem_len, 1, file);
   fclose(file);
+  return 0;
 }
 
 void print_mem(memory_t * mem) {

@@ -19,7 +19,7 @@ typedef struct memory {
 
 void init_mem(memory_t * mem);
 
-void read_mem_file(memory_t * mem, const char * filename);
+int read_mem_file(memory_t * mem, const char * filename);
 
 void print_mem(memory_t * mem);
 

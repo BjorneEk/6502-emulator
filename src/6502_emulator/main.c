@@ -122,8 +122,23 @@ int main(int argc, char * args[]) {
   m6502_t em;
   SDL_Event event;
 
-  reset(&em);
-  read_mem_file(&em.mem, "program.bin");
+
+  if (argc < 2){
+    log_error("invalid argument count, enter a binary program file");
+    return -1;
+  } if (!strcmp(args[1], "-h")) {
+    printf("%s <filename>\n", args[0]);
+    printf("Options:\n");
+    printf("  <\033[1;33m-d\033[0m> debug   enables debug mode\n");
+    printf("  <\033[1;33m-bp\033[0m> <addr> breakpoint");
+    printf("  <\033[1;33m-ng\033[0m> no graphics   dissables graphics\n");
+    printf("  <\033[1;33m-h\033[0m> help   display user info\n");
+    return 0;
+  } else if (argc == 2) {
+    reset(&em);
+    if(read_mem_file(&em.mem, args[1])) return -1;
+  }
+
   start_program(&em);
   init_window(&window, &renderer);
   main_loop(window, renderer, &event, &em);
