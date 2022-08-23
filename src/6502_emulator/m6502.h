@@ -5,6 +5,8 @@
 #ifndef _M6502_H_
 #define _M6502_H_
 
+#define NO_DECIMAL_SUPORT
+
 #include "cpu.h"
 #include "memory.h"
 #include "util.h"

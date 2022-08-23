@@ -11,6 +11,7 @@
 #define ROM_SIZE (0x8000)
 #define RAM_SIZE (MEMORY_SIZE-ROM_SIZE)
 
+#define VRAM(mem) (&mem.data[VRAM_START])
 
 typedef struct memory {
   u8_t data[MEMORY_SIZE];

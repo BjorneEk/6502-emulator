@@ -6,6 +6,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef NO_DECIMAL_SUPORT
+# warning Decimal mode unsuported
+#endif
+
 #define PC_ (em->cpu.PC)
 #define SP_ (em->cpu.SP)
 #define A_  (em->cpu.A)
@@ -22,15 +26,21 @@
 #define N_  (em->cpu.N)
 
 #define FLAG_N_BITMASK (0b10000000)
+#define FLAG_V_BITMASK (0b01000000)
+#define FLAG_U_BITMASK (0b00100000)
+#define FLAG_B_BITMASK (0b00010000)
+#define FLAG_D_BITMASK (0b00001000)
+#define FLAG_I_BITMASK (0b00000100)
+#define FLAG_Z_BITMASK (0b00000010)
 #define FLAG_C_BITMASK (0b00000001)
+#define BITMASK(flag) FLAG_##flag##_BITMASK
 
 #define HIGH_BYTE(word) (u8_t)(word >> 8)
 #define LOW_BYTE(word) (u8_t)(word & 0xFF)
 
 #define SET_ZN_FLAGS(register) Z_ = (*register == 0);\
-                               N_ = (*register & FLAG_N_BITMASK) != 0;
+                               N_ = (*register & BITMASK(N)) != 0;
 
-#define BG_YELLOW \033[43m
 
 void load_register(m6502_t * em, u8_t * reg, u16_t addr) {
   *reg = read_byte(em, addr);
@@ -49,8 +59,10 @@ u16_t addr_abs_reg_5(m6502_t * em, u8_t * reg){
 
 
 void ADC(m6502_t * em, u8_t operand) {
+#ifdef NO_DECIMAL_SUPORT
   assert_w(D_, "ADC: Decimal mode not yet suported");
-  const bool same_sign = !((A_ ^ operand) & FLAG_N_BITMASK);
+#endif
+  const bool same_sign = !((A_ ^ operand) & BITMASK(N));
   u16_t sum = A_;
   sum += operand;
   sum += C_;
@@ -58,37 +70,37 @@ void ADC(m6502_t * em, u8_t operand) {
   SET_ZN_FLAGS(&A_);
   C_ = sum > 0xFF;
   // set overflow if both operands are neggative
-  V_ = same_sign && (A_ & FLAG_N_BITMASK);
+  V_ = same_sign && (A_ & BITMASK(N));
 }
 void SBC(m6502_t * em, u8_t operand) {
   ADC(em, ~operand);
 }
 
 u8_t ASL(m6502_t * em, u8_t operand) {
-  C_ = (operand & FLAG_N_BITMASK) > 0;
+  C_ = (operand & BITMASK(N)) > 0;
   u8_t res = operand << 1;
   SET_ZN_FLAGS(&res);
   return res;
 }
 
 u8_t LSR(m6502_t * em, u8_t operand) {
-  C_ = (operand & FLAG_C_BITMASK) > 0;
+  C_ = (operand & BITMASK(C)) > 0;
   u8_t res = operand >> 1;
   SET_ZN_FLAGS(&res);
   return res;
 }
 
 u8_t ROR(m6502_t * em, u8_t operand) {
-  bool old_zero_bit = (operand & FLAG_C_BITMASK) > 0;
+  bool old_zero_bit = (operand & BITMASK(C)) > 0;
   operand = operand >> 1;
-  if (C_) operand |= FLAG_N_BITMASK;
+  if (C_) operand |= BITMASK(N);
   C_ = old_zero_bit;
   SET_ZN_FLAGS(&operand);
   return operand;
 }
 u8_t ROL(m6502_t * em, u8_t operand) {
-  u8_t new_zero_bit = C_ ? FLAG_C_BITMASK : 0;
-  C_ = (operand & FLAG_N_BITMASK) > 0;
+  u8_t new_zero_bit = C_ ? BITMASK(C) : 0;
+  C_ = (operand & BITMASK(N)) > 0;
   operand = operand << 1;
   operand |= new_zero_bit;
   SET_ZN_FLAGS(&operand);
@@ -97,7 +109,7 @@ u8_t ROL(m6502_t * em, u8_t operand) {
 
 void compare(m6502_t * em, u8_t operand, u8_t reg) {
   u8_t tmp = reg - operand;
-  N_ = (tmp & FLAG_N_BITMASK) > 0;
+  N_ = (tmp & BITMASK(N)) > 0;
   Z_ = reg == operand;
   C_ = reg >= operand;
 }
@@ -113,7 +125,7 @@ void branch_if(m6502_t * em, i32_t * cycles, bool test, bool expected){
 }
 
 
-int execute(m6502_t * em) {
+i32_t execute(m6502_t * em) {
   u8_t ins, data, ZP_addr;
   u16_t ABS_addr, ABS_addrY, sub_addr;
   i32_t cycles;
@@ -124,53 +136,48 @@ int execute(m6502_t * em) {
      *  ADC instructions
      **/
     case INS_ADC_IM:
-      cycles = 2;
       data = fetch_byte(em);
       ADC(em, data);
       if(em->debug) printf("ADC #$%02X\n", data);
-      break;
+      return 2;
 
     case INS_ADC_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       ADC(em, read_byte(em, ZP_addr));
       if(em->debug) printf("ADC $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_ADC_ZPX:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       ADC(em, read_byte(em, ZP_addr + X_));
       if(em->debug) printf("ADC $%02X, x\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_ADC_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       ADC(em, read_byte(em, ABS_addr));
       if(em->debug) printf("ADC $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     case INS_ADC_ABSX:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &X_, &cycles);
       ADC(em, read_byte(em, ABS_addr));
       if(em->debug) printf("ADC $%04X, x\n", ABS_addr -  + X_);
-      break;
+      return cycles;
 
     case INS_ADC_ABSY:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &Y_, &cycles);
       ADC(em, read_byte(em, ABS_addr));
       if(em->debug) printf("ADC $%04X, y\n", ABS_addr - Y_);
-      break;
+      return cycles;
 
     case INS_ADC_INDX:
-      cycles = 6;
       ZP_addr = fetch_byte(em);
       ADC(em, read_byte(em, read_word(em, ZP_addr + X_)));
       if(em->debug) printf("ADC ($%02X, x)\n", ZP_addr);
-      break;
+      return 6;
 
     case INS_ADC_INDY:
       cycles = 5;
@@ -180,58 +187,53 @@ int execute(m6502_t * em) {
       if((ABS_addr ^ ABS_addrY) >> 8) cycles++; //page boundry is crossed
       ADC(em, read_byte(em, ABS_addrY));
       if(em->debug) printf("ADC ($%02X), y\n", ZP_addr);
-      break;
+      return cycles;
     /**
      *  SBC instructions
      **/
     case INS_SBC_IM:
-      cycles = 2;
       data = fetch_byte(em);
       SBC(em, data);
       if(em->debug) printf("SBC #$%02X\n", data);
-      break;
+      return 2;
 
     case INS_SBC_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       SBC(em, read_byte(em, ZP_addr));
       if(em->debug) printf("SBC $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_SBC_ZPX:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       SBC(em, read_byte(em, ZP_addr + X_));
       if(em->debug) printf("SBC $%02X, x\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_SBC_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       SBC(em, read_byte(em, ABS_addr));
       if(em->debug) printf("SBC $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     case INS_SBC_ABSX:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &X_, &cycles);
       SBC(em, read_byte(em, ABS_addr));
       if(em->debug) printf("SBC $%04X, x\n", ABS_addr - X_);
-      break;
+      return cycles;
 
     case INS_SBC_ABSY:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &Y_, &cycles);
       SBC(em, read_byte(em, ABS_addr));
       if(em->debug) printf("SBC $%04X, y\n", ABS_addr - Y_);
-      break;
+      return cycles;
 
     case INS_SBC_INDX:
-      cycles = 6;
       ZP_addr = fetch_byte(em);
       SBC(em, read_byte(em, read_word(em, ZP_addr + X_)));
       if(em->debug) printf("SBC ($%02X, x)\n", ZP_addr);
-      break;
+      return 6;
 
     case INS_SBC_INDY:
       cycles = 5;
@@ -241,58 +243,53 @@ int execute(m6502_t * em) {
       if((ABS_addr ^ ABS_addrY) >> 8) cycles++; //page boundry is crossed
       SBC(em, read_byte(em, ABS_addrY));
       if(em->debug) printf("ADC ($%02X), y\n", ZP_addr);
-      break;
+      return cycles;
     /**
      *  CMP instructions
      **/
     case INS_CMP_IM:
-      cycles = 2;
       data = fetch_byte(em);
       compare(em, data, A_);
       if(em->debug) printf("CMP #$%02X\n", data);
-      break;
+      return 2;
 
     case INS_CMP_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       compare(em, read_byte(em, ZP_addr), A_);
       if(em->debug) printf("CMP $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_CMP_ZPX:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       compare(em, read_byte(em, ZP_addr + X_), A_);
       if(em->debug) printf("CMP $%02X, x\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_CMP_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       compare(em, read_byte(em, ABS_addr), A_);
       if(em->debug) printf("CMP $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     case INS_CMP_ABSX:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &X_, &cycles);
       compare(em, read_byte(em, ABS_addr), A_);
       if(em->debug) printf("CMP $%04X, x\n", ABS_addr - X_);
-      break;
+      return cycles;
 
     case INS_CMP_ABSY:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &Y_, &cycles);
       compare(em, read_byte(em, ABS_addr), A_);
       if(em->debug) printf("CMP $%04X, y\n", ABS_addr - Y_);
-      break;
+      return cycles;
 
     case INS_CMP_INDX:
-      cycles = 6;
       ZP_addr = fetch_byte(em) + X_;
       compare(em, read_byte(em, read_word(em, ZP_addr)), A_);
       if(em->debug) printf("CMP ($%02X, x)\n", ZP_addr);
-      break;
+      return 6;
 
     case INS_CMP_INDY:
       cycles = 5;
@@ -302,88 +299,78 @@ int execute(m6502_t * em) {
       if((ABS_addr ^ ABS_addrY) >> 8) cycles++; //page boundry is crossed
       compare(em, read_byte(em, ABS_addrY), A_);
       if(em->debug) printf("CMP ($%02X), y\n", ZP_addr);
-      break;
+      return cycles;
     /**
      *  CPX instructions
      **/
     case INS_CPX_IM:
-      cycles = 2;
       data = fetch_byte(em);
       compare(em, data, X_);
       if(em->debug) printf("CPX #$%02X\n", data);
-      break;
+      return 2;
 
     case INS_CPX_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       compare(em, read_byte(em, ZP_addr), X_);
       if(em->debug) printf("CPX $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_CPX_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       compare(em, read_byte(em, ABS_addr), X_);
       if(em->debug) printf("CPX $%04X\n", ABS_addr);
-      break;
+      return 4;
     /**
      *  CPY instructions
      **/
     case INS_CPY_IM:
-      cycles = 2;
       data = fetch_byte(em);
       compare(em, data, Y_);
       if(em->debug) printf("CPY #$%02X\n", data);
-      break;
+      return 2;
 
     case INS_CPY_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       compare(em, read_byte(em, ZP_addr), Y_);
       if(em->debug) printf("CPY $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_CPY_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       compare(em, read_byte(em, ABS_addr), Y_);
       if(em->debug) printf("CPY $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     /**
      *  AND instructions
      **/
     case INS_AND_IM:
-      cycles = 2;
       data = fetch_byte(em);
       A_ &= data;
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("AND #$%02X\n", data);
-      break;
+      return 2;
 
     case INS_AND_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       A_ &= read_byte(em, ZP_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("AND $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_AND_ZPX:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       A_ &= read_byte(em, ZP_addr + X_);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("AND $%02X, x\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_AND_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       A_ &= read_byte(em, ABS_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("AND $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     case INS_AND_ABSX:
       cycles = 4;
@@ -391,7 +378,7 @@ int execute(m6502_t * em) {
       A_ &= read_byte(em, ABS_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("AND $%04X, x\n", ABS_addr - X_);
-      break;
+      return cycles;
 
     case INS_AND_ABSY:
       cycles = 4;
@@ -399,15 +386,14 @@ int execute(m6502_t * em) {
       A_ &= read_byte(em, ABS_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("AND $%04X, y\n", ABS_addr - Y_);
-      break;
+      return cycles;
 
     case INS_AND_INDX:
-      cycles = 6;
       ZP_addr = fetch_byte(em) + X_;
       A_ &= read_byte(em, read_word(em, ZP_addr));
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("AND ($%02X, x)\n", ZP_addr);
-      break;
+      return 6;
 
     case INS_AND_INDY:
       cycles = 5;
@@ -418,41 +404,37 @@ int execute(m6502_t * em) {
       A_ &= read_byte(em, ABS_addrY);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("AND ($%02X), y\n", ZP_addr);
-      break;
+      return cycles;
     /**
      *  ORA instructions
      **/
     case INS_ORA_IM:
-      cycles = 2;
       data = fetch_byte(em);
       A_ |= data;
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("ORA #$%02X\n", data);
-      break;
+      return 2;
 
     case INS_ORA_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       A_ &= read_byte(em, ZP_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("ORA $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_ORA_ZPX:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       A_ |= read_byte(em, ZP_addr + X_);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("ORA $%02X, x\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_ORA_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       A_ |= read_byte(em, ABS_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("ORA $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     case INS_ORA_ABSX:
       cycles = 4;
@@ -460,7 +442,7 @@ int execute(m6502_t * em) {
       A_ |= read_byte(em, ABS_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("ORA $%04X, x\n", ABS_addr - X_);
-      break;
+      return cycles;
 
     case INS_ORA_ABSY:
       cycles = 4;
@@ -468,15 +450,14 @@ int execute(m6502_t * em) {
       A_ |= read_byte(em, ABS_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("ORA $%04X, y\n", ABS_addr - Y_);
-      break;
+      return cycles;
 
     case INS_ORA_INDX:
-      cycles = 6;
       ZP_addr = fetch_byte(em) + X_;
       A_ |= read_byte(em, read_word(em, ZP_addr));
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("ORA ($%02X, x)\n", ZP_addr);
-      break;
+      return 6;
 
     case INS_ORA_INDY:
       cycles = 5;
@@ -487,41 +468,37 @@ int execute(m6502_t * em) {
       A_ |= read_byte(em, ABS_addrY);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("ORA ($%02X), y\n", ZP_addr);
-      break;
+      return cycles;
     /**
      *  EOR instructions
      **/
     case INS_EOR_IM:
-      cycles = 2;
       data = fetch_byte(em);
       A_ ^= data;
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("EOR #$%02X\n", data);
-      break;
+      return 2;
 
     case INS_EOR_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       A_ |= read_byte(em, ZP_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("EOR $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_EOR_ZPX:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       A_ ^= read_byte(em, ZP_addr + X_);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("EOR $%02X, x\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_EOR_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       A_ ^= read_byte(em, ABS_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("EOR $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     case INS_EOR_ABSX:
       cycles = 4;
@@ -529,7 +506,7 @@ int execute(m6502_t * em) {
       A_ ^= read_byte(em, ABS_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("EOR $%04X, x\n", ABS_addr - X_);
-      break;
+      return cycles;
 
     case INS_EOR_ABSY:
       cycles = 4;
@@ -537,15 +514,14 @@ int execute(m6502_t * em) {
       A_ ^= read_byte(em, ABS_addr);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("EOR $%04X, y\n", ABS_addr - Y_);
-      break;
+      return cycles;
 
     case INS_EOR_INDX:
-      cycles = 6;
       ZP_addr = fetch_byte(em) + X_;
       A_ ^= read_byte(em, read_word(em, ZP_addr));
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("EOR ($%02X, x)\n", ZP_addr);
-      break;
+      return 6;
 
     case INS_EOR_INDY:
       cycles = 5;
@@ -556,7 +532,7 @@ int execute(m6502_t * em) {
       A_ ^= read_byte(em, ABS_addrY);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("EOR ($%02X), y\n", ZP_addr);
-      break;
+      return cycles;
     /**
      *  BRANCH instructions
      **/
@@ -567,7 +543,7 @@ int execute(m6502_t * em) {
         printf("BCC $%04X\n", data);
       }
       branch_if(em, &cycles, C_, false);
-      break;
+      return cycles;
 
     case INS_BCS:
       cycles = 1;
@@ -576,7 +552,7 @@ int execute(m6502_t * em) {
         printf("BCS $%04X\n", data);
       }
       branch_if(em, &cycles, C_, true);
-      break;
+      return cycles;
 
     case INS_BEQ:
       cycles = 1;
@@ -585,7 +561,7 @@ int execute(m6502_t * em) {
         printf("BEQ $%04X\n", data);
       }
       branch_if(em, &cycles, Z_, true);
-      break;
+      return cycles;
 
     case INS_BMI:
       cycles = 1;
@@ -594,7 +570,7 @@ int execute(m6502_t * em) {
         printf("BMI $%04X\n", data);
       }
       branch_if(em, &cycles, N_, true);
-      break;
+      return cycles;
 
     case INS_BNE:
       cycles = 1;
@@ -603,7 +579,7 @@ int execute(m6502_t * em) {
         printf("BNE $%04X\n", data);
       }
       branch_if(em, &cycles, Z_, false);
-      break;
+      return cycles;
 
     case INS_BPL:
       cycles = 1;
@@ -612,7 +588,7 @@ int execute(m6502_t * em) {
         printf("BPL $%04X\n", data);
       }
       branch_if(em, &cycles, N_, false);
-      break;
+      return cycles;
 
     case INS_BVC:
       cycles = 1;
@@ -621,7 +597,7 @@ int execute(m6502_t * em) {
         printf("BVC $%04X\n", data);
       }
       branch_if(em, &cycles, V_, false);
-      break;
+      return cycles;
 
     case INS_BVS:
       cycles = 1;
@@ -630,250 +606,223 @@ int execute(m6502_t * em) {
         printf("BVS $%04X\n", data);
       }
       branch_if(em, &cycles, V_, true);
-      break;
+      return cycles;
     /**
      *  BIT instructions
      **/
     case INS_BIT_ZP:
-      cycles = 2;
       ZP_addr = fetch_byte(em);
       data = read_byte(em, ZP_addr);
       Z_ = !(data & A_);
-      N_ =  (data & 0b10000000) != 0;
-      V_ =  (data & 0b01000000) != 0;
+      N_ =  (data & BITMASK(N)) != 0;
+      V_ =  (data & BITMASK(V)) != 0;
       if(em->debug) printf("BIT $%02X\n", ZP_addr);
-      break;
+      return 2;
 
     case INS_BIT_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       data = read_byte(em, ABS_addr);
       Z_ = !(data & A_);
-      N_ =  (data & 0b10000000) != 0;
-      V_ =  (data & 0b01000000) != 0;
+      N_ =  (data & BITMASK(N)) != 0;
+      V_ =  (data & BITMASK(V)) != 0;
       if(em->debug) printf("BIT $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     case INS_CLC:
-      cycles = 2;
       C_ = 0;
       if(em->debug) printf("CLC\n");
-      break;
+      return 2;
 
     case INS_CLD:
-      cycles = 2;
       D_ = 0;
       if(em->debug) printf("CLD\n");
-      break;
+      return 2;
 
     case INS_CLI:
-      cycles = 2;
       I_ = 0;
       if(em->debug) printf("CLI\n");
-      break;
+      return 2;
 
     case INS_CLV:
-      cycles = 2;
       V_ = 0;
       if(em->debug) printf("CLV\n");
-      break;
+      return 2;
     /**
      *  DEC instructions
      **/
     case INS_DEC_ZP:
-      cycles = 5;
       ZP_addr = fetch_byte(em);
       data = read_byte(em, ZP_addr);
       data--;
       SET_ZN_FLAGS(&data);
       write_byte(em, data, ZP_addr);
       if(em->debug) printf("DEC $%02X\n", ZP_addr);
-      break;
+      return 5;
 
     case INS_DEC_ZPX:
-      cycles = 6;
       ZP_addr = fetch_byte(em);
       data = read_byte(em, ZP_addr + X_);
       data--;
       SET_ZN_FLAGS(&data);
       write_byte(em, data, ZP_addr);
       if(em->debug) printf("DEC $%02X, x\n", ZP_addr);
-      break;
+      return 6;
 
     case INS_DEC_ABS:
-      cycles = 6;
       ABS_addr = fetch_word(em);
       data = read_byte(em, ABS_addr);
       data--;
       SET_ZN_FLAGS(&data);
       write_byte(em, data, ABS_addr);
       if(em->debug) printf("DEC $%04X\n", ABS_addr);
-      break;
+      return 6;
 
     case INS_DEC_ABSX:
-      cycles = 7;
       ABS_addr = fetch_word(em);
       data = read_byte(em, ABS_addr + X_);
       data--;
       SET_ZN_FLAGS(&data);
       write_byte(em, data, ABS_addr);
       if(em->debug) printf("DEC $%04X, x\n", ABS_addr);
-      break;
+      return 7;
     /**
      *  DEY-DEX instructions
      **/
     case INS_DEX:
-      cycles = 2;
       X_--;
       SET_ZN_FLAGS(&X_);
       if(em->debug) printf("DEX\n");
-      break;
+      return 2;
 
     case INS_DEY:
-      cycles = 2;
       Y_--;
       SET_ZN_FLAGS(&Y_);
       if(em->debug) printf("DEY\n");
-      break;
+      return 2;
     /**
      *  INC instructions
      **/
     case INS_INC_ZP:
-      cycles = 5;
       ZP_addr = fetch_byte(em);
       data = read_byte(em, ZP_addr);
       data++;
       SET_ZN_FLAGS(&data);
       write_byte(em, data, ZP_addr);
       if(em->debug) printf("INC $%02X\n", ZP_addr);
-      break;
+      return 5;
 
     case INS_INC_ZPX:
-      cycles = 6;
       ZP_addr = fetch_byte(em);
       data = read_byte(em, ZP_addr + X_);
       data++;
       SET_ZN_FLAGS(&data);
       write_byte(em, data, ZP_addr);
       if(em->debug) printf("INC $%02X, x\n", ZP_addr);
-      break;
+      return 6;
 
     case INS_INC_ABS:
-      cycles = 6;
       ABS_addr = fetch_word(em);
       data = read_byte(em, ABS_addr);
       data++;
       SET_ZN_FLAGS(&data);
       write_byte(em, data, ABS_addr);
       if(em->debug) printf("INC $%04X\n", ABS_addr);
-      break;
+      return 6;
 
     case INS_INC_ABSX:
-      cycles = 7;
       ABS_addr = fetch_word(em);
       data = read_byte(em, ABS_addr + X_);
       data++;
       SET_ZN_FLAGS(&data);
       write_byte(em, data, ABS_addr);
       if(em->debug) printf("INC $%04X, x\n", ABS_addr);
-      break;
+      return 7;
     /**
      *  INX-INY instructions
      **/
     case INS_INX:
-      cycles = 2;
       X_++;
       SET_ZN_FLAGS(&X_);
       if(em->debug) printf("INX\n");
-      break;
+      return 2;
 
     case INS_INY:
-      cycles = 2;
       Y_++;
       SET_ZN_FLAGS(&Y_);
       if(em->debug) printf("INY\n");
-      break;
+      return 2;
     /**
      *  JSR-RTS instructions
      **/
     case INS_JSR:
-      cycles = 6;
       sub_addr = fetch_word(em);
       push_word(em, PC_);
       PC_ = sub_addr;
       if(em->debug) printf("JSR $%04X\n", sub_addr);
-      break;
+      return 6;
 
     case INS_RTS:
-      cycles = 6;
       PC_ = pull_word(em);
       if(em->debug) printf("RTS\n");
-      break;
+      return 6;
 
     case INS_JMP_ABS:
-      cycles = 3;
       PC_ = fetch_word(em);
       if(em->debug) printf("JMP $%04X\n", PC_);
-      break;
+      return 3;
 
     case INS_JMP_IND:
-      cycles = 5;
       ABS_addr = fetch_word(em);
       PC_ = read_word(em, ABS_addr);
       if(em->debug) printf("JMP ($%04X)\n", ABS_addr);
-      break;
+      return 5;
     /**
      *  LDA instructions
      **/
     case INS_LDA_IM:
-      cycles = 2;
       data = fetch_byte(em);
       A_ = data;
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("LDA #$%02X\n", data);
-      break;
+      return 2;
 
     case INS_LDA_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       load_register(em, &A_, ZP_addr);
       if(em->debug) printf("LDA $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_LDA_ZPX:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       load_register(em, &A_, ZP_addr + X_);
       if(em->debug) printf("LDA $%02X, x\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_LDA_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       load_register(em, &A_, ABS_addr);
       if(em->debug) printf("LDA $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     case INS_LDA_ABSX:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &X_, &cycles);
       load_register(em, &A_, ABS_addr);
       if(em->debug) printf("LDA $%04X, x\n", ABS_addr - X_);
-      break;
+      return cycles;
 
     case INS_LDA_ABSY:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &Y_, &cycles);
       load_register(em, &A_, ABS_addr);
       if(em->debug) printf("LDA $%04X, y\n", ABS_addr - Y_);
-      break;
+      return cycles;
 
     case INS_LDA_INDX:
-      cycles = 6;
       ZP_addr = fetch_byte(em) + X_;
       load_register(em, &A_, read_word(em, ZP_addr));
       if(em->debug) printf("LDA ($%02X, x)\n", ZP_addr - X_);
-      break;
+      return 6;
 
     case INS_LDA_INDY:
       cycles = 5;
@@ -883,444 +832,388 @@ int execute(m6502_t * em) {
       if((ABS_addr ^ ABS_addrY) >> 8) cycles++; //page boundry is crossed
       load_register(em, &A_, ABS_addrY);
       if(em->debug) printf("LDA ($%02X), y\n", ZP_addr);
-      break;
+      return cycles;
     /**
      *  LDX instructions
      **/
     case INS_LDX_IM:
-      cycles = 2;
       data = fetch_byte(em);
       X_ = data;
       SET_ZN_FLAGS(&X_);
       if(em->debug) printf("LDX #$%02X\n", data);
-      break;
+      return 2;
 
     case INS_LDX_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       load_register(em, &X_, ZP_addr);
       if(em->debug) printf("LDX $%02X\n", ZP_addr);
-    break;
+      return 3;
 
     case INS_LDX_ZPY:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       load_register(em, &X_, ZP_addr + Y_);
       if(em->debug) printf("LDX $%02X, y\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_LDX_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       load_register(em, &X_, ABS_addr);
       if(em->debug) printf("LDX $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     case INS_LDX_ABSY:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &Y_, &cycles);
       load_register(em, &X_, ABS_addr);
       if(em->debug) printf("LDX $%04X, y\n", ABS_addr - Y_);
-      break;
+      return cycles;
     /**
      *  LDY instructions
      **/
     case INS_LDY_IM:
-      cycles = 2;
       data = fetch_byte(em);
       Y_ = data;
       SET_ZN_FLAGS(&Y_);
       if(em->debug) printf("LDY #$%02X\n", data);
-      break;
+      return 2;
 
     case INS_LDY_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       load_register(em, &Y_, ZP_addr);
       if(em->debug) printf("LDY $%02X\n", ZP_addr);
-    break;
+      return 3;
 
     case INS_LDY_ZPX:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       load_register(em, &Y_, ZP_addr + X_);
       if(em->debug) printf("LDY $%02X, x\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_LDY_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       load_register(em, &Y_, ABS_addr);
       if(em->debug) printf("LDY $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     case INS_LDY_ABSX:
       cycles = 4;
       ABS_addr = addr_abs_reg(em, &X_, &cycles);
       load_register(em, &Y_, ABS_addr);
       if(em->debug) printf("LDY $%04X, x\n", ABS_addr - X_);
-      break;
+      return cycles;
     /**
      *  STA instructions
      **/
     case INS_STA_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       write_byte(em, A_, ZP_addr);
       if(em->debug) printf("STA $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_STA_ZPX:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       write_byte(em, A_, ZP_addr + X_);
       if(em->debug) printf("STA $%02X, x\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_STA_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       write_byte(em, A_, ABS_addr);
       if(em->debug) printf("STA $%04X\n", ABS_addr);
-      break;
+      return 4;
 
     case INS_STA_ABSX:
-      cycles = 5;
       ABS_addr = addr_abs_reg_5(em, &X_);
       write_byte(em, A_, ABS_addr);
       if(em->debug) printf("STA $%04X, x\n", ABS_addr - X_);
-      break;
+      return 5;
 
     case INS_STA_ABSY:
-      cycles = 5;
       ABS_addr = addr_abs_reg_5(em, &Y_);
       write_byte(em, A_, ABS_addr);
       if(em->debug) printf("STA $%04X, y\n", ABS_addr - Y_);
-      break;
+      return 5;
 
     case INS_STA_INDX:
-      cycles = 6;
       ZP_addr = fetch_byte(em) + X_;
       write_byte(em, A_, read_word(em, ZP_addr));
       if(em->debug) printf("STA ($%02X, x)\n", ZP_addr);
-      break;
+      return 6;
 
     case INS_STA_INDY:
-      cycles = 6;
       ZP_addr = fetch_byte(em);
       ABS_addr = read_word(em, ZP_addr);
       write_byte(em, A_, ABS_addr + Y_);
       if(em->debug) printf("STA ($%02X), y\n", ZP_addr);
-      break;
+      return 6;
     /**
      *  STX instructions
      **/
     case INS_STX_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       write_byte(em, X_, ZP_addr);
       if(em->debug) printf("STX $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_STX_ZPY:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       write_byte(em, X_, ZP_addr + Y_);
       if(em->debug) printf("STX $%02X, y\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_STX_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       write_byte(em, X_, ABS_addr);
       if(em->debug) printf("STX $%04X\n", ABS_addr);
-      break;
+      return 4;
     /**
      *  STY instructions
      **/
     case INS_STY_ZP:
-      cycles = 3;
       ZP_addr = fetch_byte(em);
       write_byte(em, Y_, ZP_addr);
       if(em->debug) printf("STY $%02X\n", ZP_addr);
-      break;
+      return 3;
 
     case INS_STY_ZPX:
-      cycles = 4;
       ZP_addr = fetch_byte(em);
       write_byte(em, Y_, ZP_addr + X_);
       if(em->debug) printf("STY $%02X, x\n", ZP_addr);
-      break;
+      return 4;
 
     case INS_STY_ABS:
-      cycles = 4;
       ABS_addr = fetch_word(em);
       write_byte(em, Y_, ABS_addr);
       if(em->debug) printf("STY $%04X\n", ABS_addr);
-      break;
+      return 4;
     /**
      *  LSR instructions
      **/
     case INS_LSR_ACC:
-      cycles = 2;
       A_ = LSR(em, A_);
       if(em->debug) printf("LSR A\n");
-      break;
+      return 2;
 
     case INS_LSR_ZP:
-      cycles = 5;
       ZP_addr = fetch_byte(em);
       data = read_byte(em, ZP_addr);
       write_byte(em, LSR(em, data), ZP_addr);
       if(em->debug) printf("LSR $%02X\n", ZP_addr);
-      break;
+      return 5;
 
     case INS_LSR_ZPX:
-      cycles = 6;
       ZP_addr = fetch_byte(em) + X_;
       data = read_byte(em, ZP_addr);
       write_byte(em, LSR(em, data), ZP_addr);
       if(em->debug) printf("LSR $%02X, x\n", ZP_addr - X_);
-      break;
+      return 6;
 
     case INS_LSR_ABS:
-      cycles = 6;
       ABS_addr = fetch_word(em);
       data = read_byte(em, ABS_addr);
       write_byte(em, LSR(em, data), ABS_addr);
       if(em->debug) printf("LSR $%04X\n", ABS_addr);
-      break;
+      return 6;
 
     case INS_LSR_ABSX:
-      cycles = 7;
       ABS_addr = fetch_word(em) + X_;
       data = read_byte(em, ABS_addr);
       write_byte(em, LSR(em, data), ABS_addr);
       if(em->debug) printf("LSR $%04X, x\n", ABS_addr - X_);
-      break;
+      return 7;
     /**
      *  ASL instructions
      **/
     case INS_ASL_ACC:
-      cycles = 2;
       A_ = ASL(em, A_);
       if(em->debug) printf("ASL A\n");
-      break;
+      return 2;
 
     case INS_ASL_ZP:
-      cycles = 5;
       ZP_addr = fetch_byte(em);
       data = read_byte(em, ZP_addr);
       write_byte(em, ASL(em, data), ZP_addr);
       if(em->debug) printf("ASL $%02X\n", ZP_addr);
-      break;
+      return 5;
 
     case INS_ASL_ZPX:
-      cycles = 6;
       ZP_addr = fetch_byte(em) + X_;
       data = read_byte(em, ZP_addr);
       write_byte(em, ASL(em, data), ZP_addr);
       if(em->debug) printf("ASL $%02X, x\n", ZP_addr - X_);
-      break;
+      return 6;
 
     case INS_ASL_ABS:
-      cycles = 6;
       ABS_addr = fetch_word(em);
       data = read_byte(em, ABS_addr);
       write_byte(em, ASL(em, data), ABS_addr);
       if(em->debug) printf("ASL $%04X\n", ABS_addr);
-      break;
+      return 6;
 
     case INS_ASL_ABSX:
-      cycles = 7;
       ABS_addr = fetch_word(em) + X_;
       data = read_byte(em, ABS_addr);
       write_byte(em, ASL(em, data), ABS_addr);
       if(em->debug) printf("ASL $%04X, x\n", ABS_addr - X_);
-      break;
+      return 7;
     /**
      *  ROL instructions
      **/
     case INS_ROL_ACC:
-      cycles = 2;
       A_ = ROL(em, A_);
       if(em->debug) printf("ROL A\n");
-      break;
+      return 2;
 
     case INS_ROL_ZP:
-      cycles = 5;
       ZP_addr = fetch_byte(em);
       data = read_byte(em, ZP_addr);
       write_byte(em, ROL(em, data), ZP_addr);
       if(em->debug) printf("ROL $%02X\n", ZP_addr);
-      break;
+      return 5;
 
     case INS_ROL_ZPX:
-      cycles = 6;
       ZP_addr = fetch_byte(em) + X_;
       data = read_byte(em, ZP_addr);
       write_byte(em, ROL(em, data), ZP_addr);
       if(em->debug) printf("ROL $%02X, x\n", ZP_addr - X_);
-      break;
+      return 6;
 
     case INS_ROL_ABS:
-      cycles = 6;
       ABS_addr = fetch_word(em);
       data = read_byte(em, ABS_addr);
       write_byte(em, ROL(em, data), ABS_addr);
       if(em->debug) printf("ROL $%04X\n", ABS_addr);
-      break;
+      return 6;
 
     case INS_ROL_ABSX:
-      cycles = 7;
       ABS_addr = fetch_word(em) + X_;
       data = read_byte(em, ABS_addr);
       write_byte(em, ROL(em, data), ABS_addr);
       if(em->debug) printf("ROL $%04X, x\n", ABS_addr - X_);
-      break;
+      return 7;
     /**
      *  ROR instructions
      **/
     case INS_ROR_ACC:
-      cycles = 2;
       A_ = ROR(em, A_);
       if(em->debug) printf("ROR A\n");
-      break;
+      return 2;
 
     case INS_ROR_ZP:
-      cycles = 5;
       ZP_addr = fetch_byte(em);
       data = read_byte(em, ZP_addr);
       write_byte(em, ROR(em, data), ZP_addr);
       if(em->debug) printf("ROR $%02X\n", ZP_addr);
-      break;
+      return 5;
 
     case INS_ROR_ZPX:
-      cycles = 6;
       ZP_addr = fetch_byte(em) + X_;
       data = read_byte(em, ZP_addr);
       write_byte(em, ROR(em, data), ZP_addr);
       if(em->debug) printf("ROR $%02X, x\n", ZP_addr - X_);
-      break;
+      return 6;
 
     case INS_ROR_ABS:
-      cycles = 6;
       ABS_addr = fetch_word(em);
       data = read_byte(em, ABS_addr);
       write_byte(em, ROR(em, data), ABS_addr);
       if(em->debug) printf("ROR $%04X\n", ABS_addr);
-      break;
+      return 6;
 
     case INS_ROR_ABSX:
-      cycles = 7;
       ABS_addr = fetch_word(em) + X_;
       data = read_byte(em, ABS_addr);
       write_byte(em, ROR(em, data), ABS_addr);
       if(em->debug) printf("ROR $%04X, x\n", ABS_addr - X_);
-      break;
+      return 7;
 
     /**
      *  NOP instructions
      **/
     case INS_NOP:
-      cycles = 1;
       if(em->debug) printf("NOP\n");
-      break;
+      return 1;
     /**
      *  STACK instructions
      **/
     case INS_PHA:
-      cycles = 3;
       push_byte(em, A_);
       if(em->debug) printf("PHA\n");
-      break;
+      return 3;
 
     case INS_PHP:
-      cycles = 3;
-      push_byte(em, PS_ | 0b00001100);
+      push_byte(em, PS_ | BITMASK(B) | BITMASK(U));
       if(em->debug) printf("PHP\n");
-      break;
+      return 3;
 
     case INS_PLA:
-      cycles = 4;
       A_ = pull_byte(em);
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("PLA\n");
-      break;
+      return 4;
 
     case INS_PLP:
-      cycles = 4;
       PS_ = pull_byte(em);
       if(em->debug) printf("PLP\n");
-      break;
+      return 4;
 
     case INS_RTI:
-      cycles = 6;
       PS_ = pull_byte(em);
       PC_ = pull_word(em);
       if(em->debug) printf("RTI\n");
-      break;
+      return 6;
 
     case INS_SEC:
-      cycles = 2;
       C_ = 1;
       if(em->debug) printf("SEC\n");
-      break;
+      return 2;
 
     case INS_SED:
-      cycles = 2;
       D_ = 1;
       if(em->debug) printf("SED\n");
-      break;
+      return 2;
 
     case INS_SEI:
-      cycles = 2;
       I_ = 1;
       if(em->debug) printf("SEI\n");
-      break;
+      return 2;
     /**
      *  TRANSFER instructions
      **/
     case INS_TAX:
-      cycles = 2;
       X_ = A_;
       SET_ZN_FLAGS(&X_);
       if(em->debug) printf("TAX\n");
-      break;
+      return 2;
 
     case INS_TAY:
-      cycles = 2;
       Y_ = SP_;
       SET_ZN_FLAGS(&Y_);
       if(em->debug) printf("TAY\n");
-      break;
+      return 2;
 
     case INS_TSX:
-      cycles = 2;
       X_ = SP_;
       SET_ZN_FLAGS(&X_);
       if(em->debug) printf("TSX\n");
-      break;
+      return 2;
 
     case INS_TXA:
-      cycles = 2;
       A_ = X_;
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("TXA\n");
-      break;
+      return 2;
 
     case INS_TXS:
-      cycles = 2;
       SP_ = X_;
       if(em->debug) printf("TXS\n");
-      break;
+      return 2;
 
     case INS_TYA:
-      cycles = 2;
       A_ = Y_;
       SET_ZN_FLAGS(&A_);
       if(em->debug) printf("TYA\n");
-      break;
+      return 2;
 
     case INS_BRK:
       if(em->debug) printf("BRK\n");
@@ -1328,9 +1221,8 @@ int execute(m6502_t * em) {
 
     default:
       printf("not a valid instruction");
-      break;
+      return -1;
   }
-  return cycles;
 }
 
 

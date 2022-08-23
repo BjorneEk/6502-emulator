@@ -24,7 +24,6 @@ ASM_SOURCES = $(wildcard assembly_sources/videotest.s )
 %.o: %.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(LIBS)
 
-
 $(TARGET): $(OBJ)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
 
@@ -37,7 +36,7 @@ $(ASM_TARGET): $(ASM_SOURCES)
 	$(ASSEMBLER) $(ASM_FLAGS) -o $@ $^
 
 run: $(TARGET)
-	./$(TARGET)
+	./$(TARGET) $(ASM_TARGET)
 
 clean:
 	$(RM) src/*.bin src/*.o src/*.dis src/*.elf

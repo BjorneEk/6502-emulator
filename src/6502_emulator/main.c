@@ -9,25 +9,21 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include "m6502.h"
+#include "be_m6502.h"
 
 #define WIDTH  100
 #define HEIGHT 64
 
 #define PIXEL_SIZE 20
 
-#define RED_BM   (0b00110000)
-#define GREEN_BM (0b00001100)
-#define BLUE_BM  (0b00000011)
 
 
-#define RED_VALUE   ((0xFF) * ((float)((pbyte & RED_BM) >> 4)/3))
-#define GREEN_VALUE ((0xFF) * ((float)((pbyte & GREEN_BM) >> 2)/3))
-#define BLUE_VALUE  ((0xFF) * (float)(pbyte & BLUE_BM)/3)
 
-#define CYCLES_PER_REPAINT (32000)
 
-#define VRAM_START 0x2000
+#define CYCLES_PER_REPAINT (10000)
+
 #define VRAM_CORD(_x, _y) (uint16_t) (((VRAM_START) + (_x)) + ((128) * (_y)))
 
 void init_window(SDL_Window ** window, SDL_Renderer ** renderer) {
@@ -79,11 +75,17 @@ bool event_loop(SDL_Event * event)
   }
   return false;
 }
+void delay(double nseconds)  {
+  clock_t start_time = clock();
+  while (clock() < start_time + nseconds);
+}
 
-void main_loop(SDL_Window * window, SDL_Renderer * renderer,
+void main_loop(vga_t * vga,
                SDL_Event * event, m6502_t * em) {
-  int i, j;
+  i32_t i, j, cycles;
   u8_t pbyte;
+  double time_total, time_real;
+  clock_t begin, end;
   SDL_Rect pixel;
   bool quit;
 
@@ -91,34 +93,23 @@ void main_loop(SDL_Window * window, SDL_Renderer * renderer,
 
   while (!quit)
   {
-    for(i = 0; i < CYCLES_PER_REPAINT; i++) execute(em);
+    begin = clock();
+    cycles = 0;
+    for(i = 0; i < CYCLES_PER_REPAINT; i++) cycles += execute(em);
 
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-    SDL_RenderClear(renderer);
-
-    for(i = 0; i < WIDTH; i++)
-      for (j = 0; j < HEIGHT; j ++) {
-        pbyte = read_byte(em, VRAM_CORD(i, j));
-
-        SDL_SetRenderDrawColor(renderer, RED_VALUE, GREEN_VALUE, BLUE_VALUE, 0);
-        pixel = (SDL_Rect){
-          .y=(j*PIXEL_SIZE)+1,.x=(i*PIXEL_SIZE)+1,
-          .h=PIXEL_SIZE-2,.w=PIXEL_SIZE-2
-        };
-        SDL_RenderFillRect(renderer, &pixel);
-      }
-    /**
-     *   update screen?
-     **/
-    SDL_RenderPresent(renderer);
+    vga_repaint(vga);
     quit = event_loop(event);
+
+    time_total = EXECUTION_TIME(cycles);
+    end = clock();
+    time_real = (10*(double)(end - begin) / CLOCKS_PER_SEC);
+    delay((time_total - time_real)*1000000);
   }
 }
 
 
 int main(int argc, char * args[]) {
-  SDL_Window   * window   = NULL;
-  SDL_Renderer * renderer = NULL;
+  vga_t vga;
   m6502_t em;
   SDL_Event event;
 
@@ -137,14 +128,16 @@ int main(int argc, char * args[]) {
   } else if (argc == 2) {
     reset(&em);
     if(read_mem_file(&em.mem, args[1])) return -1;
+  } else {
+    printf("there are currently unsuported options");
+    return -1;
   }
 
   start_program(&em);
-  init_window(&window, &renderer);
-  main_loop(window, renderer, &event, &em);
+  vga_init(&vga, &em, PIXEL_SIZE);
+  main_loop(&vga, &event, &em);
 
-  SDL_DestroyRenderer(renderer);
-  SDL_DestroyWindow(window);
+  vga_destroy_window(&vga);
   SDL_Quit();
   exit(0);
 }

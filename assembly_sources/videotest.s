@@ -7,7 +7,7 @@ reset:
   sta start_color
 
 loop:
- lda #$20
+ lda #$30
  sta vidpage + 1
  lda #$00
  sta vidpage

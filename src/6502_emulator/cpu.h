@@ -215,10 +215,20 @@
 //TYA
 #define INS_TYA      0x98
 
-
-#define RESET_CPU 0xFFFC
-#define RESET_STACK 0x00FF
+/**
+ * stack starts at STACK_OFFSET + RESET_STACK and decrements
+ **/
+#define RESET_CPU    0xFFFC
+#define RESET_STACK  0x00FF
 #define STACK_OFFSET 0x0100
+
+/**
+ * clock speed is aprocimatly the number
+ * of cycles executed in one second
+ **/
+#define CLOCK_SPEED 1000000
+#define SECONDS_PER_CYCLE ((double)((1.0)/((double)CLOCK_SPEED)))
+#define EXECUTION_TIME(cycles) ((double)(SECONDS_PER_CYCLE*(double)(cycles)))
 
 typedef struct instruction {
   u8_t code, cycles, bytes;
