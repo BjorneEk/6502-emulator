@@ -24,6 +24,8 @@
 #define U_  (em->cpu.U)
 #define V_  (em->cpu.V)
 #define N_  (em->cpu.N)
+#define IRQ_  (em->cpu.irq)
+#define NMI_  (em->cpu.nmi)
 
 #define FLAG_N_BITMASK (0b10000000)
 #define FLAG_V_BITMASK (0b01000000)
@@ -129,6 +131,18 @@ i32_t execute(m6502_t * em) {
   u8_t ins, data, ZP_addr;
   u16_t ABS_addr, ABS_addrY, sub_addr;
   i32_t cycles;
+
+  if(NMI_) {
+    NMI_ = false;
+    push_word(em, PC_);
+    push_byte(em, PS_);
+    PC_ = read_word(em, CPU_NMI);
+  } else if(!I_ && IRQ_) {
+    I_ = 1;
+    push_word(em, PC_);
+    push_byte(em, PS_);
+    PC_ = read_word(em, CPU_IRQ);
+  }
 
   ins = fetch_byte(em);
   switch(ins){
@@ -1160,6 +1174,7 @@ i32_t execute(m6502_t * em) {
     case INS_RTI:
       PS_ = pull_byte(em);
       PC_ = pull_word(em);
+      I_ = 0;
       if(em->debug) printf("RTI\n");
       return 6;
 
@@ -1229,10 +1244,8 @@ i32_t execute(m6502_t * em) {
 void reset(m6502_t * em) {
   init_mem(&em->mem);
   reset_cpu(&em->cpu);
+  PC_ = read_word(em, CPU_RESET);
   em->debug = false;
-}
-void start_program(m6502_t * em) {
-  PC_ = read_word(em, RESET_CPU);
 }
 
 void enable_debug(m6502_t * em) {

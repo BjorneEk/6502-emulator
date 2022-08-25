@@ -18,32 +18,9 @@
 
 #define PIXEL_SIZE 20
 
-
-
-
-
 #define CYCLES_PER_REPAINT (10000)
 
-#define VRAM_CORD(_x, _y) (uint16_t) (((VRAM_START) + (_x)) + ((128) * (_y)))
-
-void init_window(SDL_Window ** window, SDL_Renderer ** renderer) {
-  SDL_Init(SDL_INIT_EVERYTHING);
-
-  SDL_CreateWindowAndRenderer(WIDTH * PIXEL_SIZE, HEIGHT * PIXEL_SIZE, SDL_WINDOW_SHOWN, window, renderer);
-
-  if(*window == NULL || *renderer == NULL)
-  {
-    log_error("Failed to initialize SDL2 window");
-    return;
-  }
-
-  SDL_SetWindowTitle(*window, "window");
-  SDL_SetRenderDrawColor(*renderer, 0, 0, 0, 0);
-  SDL_RenderClear(*renderer);
-  SDL_RenderPresent(*renderer);
-}
-
-bool event_loop(SDL_Event * event)
+bool event_loop(SDL_Event * event, m6502_t * em)
 {
   while (SDL_PollEvent(event))
   {
@@ -52,7 +29,9 @@ bool event_loop(SDL_Event * event)
       case SDL_MOUSEBUTTONDOWN:
         switch ((*event).button.button)
         {
-          case SDL_BUTTON_LEFT:  break;
+          case SDL_BUTTON_LEFT:
+            em->cpu.irq = true;
+            break;
           case SDL_BUTTON_RIGHT: break;
           default:               break;
         }
@@ -80,25 +59,21 @@ void delay(double nseconds)  {
   while (clock() < start_time + nseconds);
 }
 
-void main_loop(vga_t * vga,
-               SDL_Event * event, m6502_t * em) {
-  i32_t i, j, cycles;
-  u8_t pbyte;
+void main_loop(vga_t * vga, SDL_Event * event, m6502_t * em) {
+  i32_t i, cycles;
   double time_total, time_real;
   clock_t begin, end;
-  SDL_Rect pixel;
   bool quit;
 
   quit = false;
 
-  while (!quit)
-  {
+  while (!quit) {
     begin = clock();
     cycles = 0;
     for(i = 0; i < CYCLES_PER_REPAINT; i++) cycles += execute(em);
 
     vga_repaint(vga);
-    quit = event_loop(event);
+    quit = event_loop(event, em);
 
     time_total = EXECUTION_TIME(cycles);
     end = clock();
@@ -133,8 +108,8 @@ int main(int argc, char * args[]) {
     return -1;
   }
 
-  start_program(&em);
   vga_init(&vga, &em, PIXEL_SIZE);
+  enable_debug(&em);
   main_loop(&vga, &event, &em);
 
   vga_destroy_window(&vga);

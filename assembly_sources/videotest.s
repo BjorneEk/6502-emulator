@@ -3,6 +3,7 @@ start_color = $0002
  .org $8000
 
 reset:
+  cli
   lda #$0
   sta start_color
 
@@ -38,6 +39,30 @@ inc_color:
 
  jmp loop
 
- .org $fffc
- .word $8000
- .word $0000
+nmi:
+  rti
+irq:
+  ldy #$0
+  lda #$0
+  ldx #$20
+irq_loop:
+  sta (vidpage), y
+  and #$7f
+  bne inc_page
+  clc
+
+inc_page:
+  iny
+  bne irq_loop
+  inc vidpage + 1
+  dex
+  bne irq_loop
+exit_irq:
+  rti
+
+
+
+ .org $fffa
+ .word nmi
+ .word reset
+ .word irq

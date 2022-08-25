@@ -22,7 +22,6 @@ int main(int argc, char const *argv[]) {
   test_JMP(&em);
   reset(&em);
   read_mem_file(&em.mem,"program.bin");
-  start_program(&em);
   enable_debug(&em);
   debug(&em);
   for(int i = 0; i < 1290; i++) execute(&em);

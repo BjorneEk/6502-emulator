@@ -21,7 +21,6 @@ typedef struct _6502_emulator {
 } m6502_t;
 
 void reset(m6502_t * em);
-void start_program(m6502_t * em);
 
 void enable_debug(m6502_t * em);
 void disable_debug(m6502_t * em);

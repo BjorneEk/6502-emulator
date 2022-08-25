@@ -1,6 +1,9 @@
 ////////////////////////////////////////////////////////////////////////////
 ///        @author Gustaf Franzén :: https://github.com/BjorneEk;        ///
 ////////////////////////////////////////////////////////////////////////////
+#ifndef _BE_M6502_H_
+#define _BE_M6502_H_
+
 #include <sdl/SDL.h>
 #include <stdbool.h>
 #include "m6502.h"
@@ -50,3 +53,5 @@ typedef struct {
 void vga_init(vga_t * vga, m6502_t * em, u32_t pixel_size);
 void vga_repaint(vga_t * vga);
 void vga_destroy_window(vga_t * vga);
+
+#endif

@@ -216,9 +216,22 @@
 #define INS_TYA      0x98
 
 /**
+ * +-------------------------------------------+
+ * |            Vector Locations               |
+ * +------------+----------+-------------------+
+ * | 0xFFFE, F  | BRK/IRQB | Software/Hardware |
+ * | 0xFFFC, D  | RESB     | Hardware          |
+ * | 0cFFFA, B  | NMIB     | Hardware          |
+ * +------------+----------+-------------------+
+ **/
+#define CPU_IRQ    0xFFFE
+#define CPU_RESET  0xFFFC
+#define CPU_NMI    0xFFFA
+
+
+/**
  * stack starts at STACK_OFFSET + RESET_STACK and decrements
  **/
-#define RESET_CPU    0xFFFC
 #define RESET_STACK  0x00FF
 #define STACK_OFFSET 0x0100
 
@@ -239,6 +252,9 @@ typedef struct cpu {
   u8_t SP;
 
   u8_t A, X, Y;
+
+  bool irq;
+  bool nmi;
 
   union {
     u8_t status;
